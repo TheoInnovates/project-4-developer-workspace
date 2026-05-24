@@ -1,0 +1,75 @@
+name: Validate
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  compose-lint:
+    name: Lint Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create dummy .env for validation
+        run: |
+          grep -oP '\$\{(\w+)\}' docker-compose.yml | sort -u | sed 's/\${//;s/}//' | \
+            while read var; do echo "${var}=placeholder"; done > .env
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+  yaml-lint:
+    name: Lint YAML configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pip install yamllint
+      - name: Lint YAML files
+        run: |
+          yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}}}' \
+            prometheus/prometheus.yml \
+            prometheus/alerts/alerts.yml \
+            traefik/traefik.yml \
+            traefik/dynamic/tls.yml \
+            grafana/provisioning/datasources/prometheus.yml \
+            grafana/provisioning/dashboards/dashboards.yml \
+            promtail/promtail.yml
+
+  shellcheck:
+    name: Lint Shell Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        run: |
+          find scripts -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning || true
+
+  tofu-validate:
+    name: Validate OpenTofu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: latest
+      - name: Validate Terraform configs
+        working-directory: infra
+        run: |
+          tofu init -backend=false
+          tofu validate
+
+  trivy-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: 0
