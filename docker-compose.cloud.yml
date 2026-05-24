@@ -14,3 +14,17 @@ services:
       resources:
         limits:
           memory: 8G
+
+  # Increase Nexus memory (JVM benefits from more headroom on ARM)
+  nexus:
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+  # Increase Prometheus memory (longer retention, more scrape targets)
+  prometheus:
+    deploy:
+      resources:
+        limits:
+          memory: 768M

@@ -92,6 +92,7 @@ The workspace runs 14 services organized into five functional layers, all behind
                                          0 ingress rules
 ```
 
+- **ARM64 native** &mdash; all container images are multi-arch and run natively on the OCI ARM instance
 - **Zero public ports** &mdash; OCI security list has no ingress rules
 - **OS firewall** &mdash; iptables only accepts traffic on `tailscale0` and loopback
 - **Access** &mdash; Tailscale SSH + MagicDNS for administration

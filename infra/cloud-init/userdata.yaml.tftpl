@@ -43,6 +43,13 @@ runcmd:
   - iptables -A INPUT -j DROP
   - netfilter-persistent save
 
+  # Create 4GB swap (safety net for 24 GB instance running all services)
+  - fallocate -l 4G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
   # Clone the repo
   - git clone ${github_repo_url} /opt/devstack
   - chown -R ubuntu:ubuntu /opt/devstack

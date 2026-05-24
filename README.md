@@ -114,14 +114,14 @@ Set `TLS_PROFILE` in `stack.env` to switch between profiles.
 
 ## Cloud Deployment
 
-The stack deploys to an **OCI Always Free** ARM instance (4 OCPUs, 24 GB RAM) with zero public ports &mdash; all access is via Tailscale.
+The stack deploys to an **OCI Always Free** ARM64 instance (4 OCPUs, 24 GB RAM) with zero public ports &mdash; all access is via Tailscale. All container images are multi-arch and run natively on ARM64.
 
 ```bash
 cd infra && tofu init && tofu apply    # Provision OCI instance
 tailscale ssh ubuntu@devstack          # Connect via Tailscale
 ```
 
-See [`infra/`](infra/) for OpenTofu configuration and cloud-init details.
+See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and [`infra/`](infra/) for OpenTofu configuration and cloud-init details.
 
 ## Makefile Targets
 
