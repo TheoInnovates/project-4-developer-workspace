@@ -21,7 +21,12 @@
       "Bash(docker ps:*)",
       "WebSearch",
       "Bash(chmod +x:*)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(ssh-keygen:*)",
+      "Bash(gh ssh-key:*)",
+      "Bash(ssh:*)",
+      "Bash(gh config:*)"
     ]
   }
 }
