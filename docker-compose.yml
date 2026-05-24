@@ -1,0 +1,552 @@
+networks:
+  devstack:
+    name: devstack
+    driver: bridge
+
+services:
+  # =========================================================================
+  # Traefik - Reverse Proxy
+  # =========================================================================
+  traefik:
+    image: traefik:v3.3
+    container_name: traefik
+    restart: unless-stopped
+    networks:
+      - devstack
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/etc/traefik/certs:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.traefik.rule: "Host(`${TRAEFIK_HOST}`)"
+      traefik.http.routers.traefik.entrypoints: websecure
+      traefik.http.routers.traefik.tls: "true"
+      traefik.http.routers.traefik.service: api@internal
+      # Homepage
+      homepage.group: Infrastructure
+      homepage.name: Traefik
+      homepage.icon: traefik
+      homepage.href: "https://${TRAEFIK_HOST}"
+      homepage.description: Reverse Proxy & Load Balancer
+      homepage.widget.type: traefik
+      homepage.widget.url: "https://traefik:443"
+
+  # =========================================================================
+  # GitLab CE - Source Control
+  # =========================================================================
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab
+    restart: unless-stopped
+    profiles: [dev]
+    hostname: ${GITLAB_HOST}
+    networks:
+      - devstack
+    ports:
+      - "${GITLAB_SSH_PORT}:22"
+    volumes:
+      - ./volumes/gitlab-config:/etc/gitlab
+      - ./volumes/gitlab-logs:/var/log/gitlab
+      - ./volumes/gitlab-data:/var/opt/gitlab
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://${GITLAB_HOST}'
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD}'
+
+        # Use Traefik for TLS termination
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+
+        # SSH config
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT}
+
+        # Performance tuning for local dev
+        puma['workers'] = 2
+        puma['min_threads'] = 1
+        puma['max_threads'] = 4
+        sidekiq['concurrency'] = 10
+
+        # Disable built-in monitoring (using external Prometheus/Grafana)
+        prometheus_monitoring['enable'] = false
+
+        # Enable Prometheus metrics endpoint
+        gitlab_rails['monitoring_whitelist'] = ['0.0.0.0/0']
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/gitlab/embedded/bin/curl -sf http://localhost:80/-/readiness || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    shm_size: 256m
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.gitlab.rule: "Host(`${GITLAB_HOST}`)"
+      traefik.http.routers.gitlab.entrypoints: websecure
+      traefik.http.routers.gitlab.tls: "true"
+      traefik.http.services.gitlab.loadbalancer.server.port: "80"
+      # Homepage
+      homepage.group: Development
+      homepage.name: GitLab
+      homepage.icon: gitlab
+      homepage.href: "https://${GITLAB_HOST}"
+      homepage.description: Source Control & CI/CD
+
+  # =========================================================================
+  # GitLab Runner - CI/CD Executor
+  # =========================================================================
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: gitlab-runner
+    restart: unless-stopped
+    profiles: [dev]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/gitlab-runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      gitlab:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "gitlab-runner", "--version"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    labels:
+      homepage.group: Development
+      homepage.name: GitLab Runner
+      homepage.icon: gitlab
+      homepage.href: "https://${GITLAB_HOST}/admin/runners"
+      homepage.description: CI/CD Pipeline Executor
+
+  # =========================================================================
+  # Nexus Repository - Artifact Management
+  # =========================================================================
+  nexus:
+    image: sonatype/nexus3:latest
+    container_name: nexus
+    restart: unless-stopped
+    profiles: [dev]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/nexus-data:/nexus-data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/service/rest/v1/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: >-
+        -Xms512m
+        -Xmx1536m
+        -XX:MaxDirectMemorySize=512m
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.nexus.rule: "Host(`${NEXUS_HOST}`)"
+      traefik.http.routers.nexus.entrypoints: websecure
+      traefik.http.routers.nexus.tls: "true"
+      traefik.http.services.nexus.loadbalancer.server.port: "8081"
+      # Homepage
+      homepage.group: Development
+      homepage.name: Nexus
+      homepage.icon: nexus
+      homepage.href: "https://${NEXUS_HOST}"
+      homepage.description: Artifact Repository Manager
+
+  # =========================================================================
+  # Docker Registry
+  # =========================================================================
+  registry:
+    image: registry:2
+    container_name: registry
+    restart: unless-stopped
+    profiles: [dev]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/registry-data:/var/lib/registry
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/v2/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.registry.rule: "Host(`${REGISTRY_HOST}`)"
+      traefik.http.routers.registry.entrypoints: websecure
+      traefik.http.routers.registry.tls: "true"
+      traefik.http.services.registry.loadbalancer.server.port: "5000"
+      # Homepage
+      homepage.group: Development
+      homepage.name: Registry
+      homepage.icon: docker
+      homepage.href: "https://${REGISTRY_HOST}"
+      homepage.description: Docker Container Registry
+
+  # =========================================================================
+  # Prometheus - Metrics Collection
+  # =========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    profiles: [monitoring]
+    networks:
+      - devstack
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      - ./volumes/prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.prometheus.rule: "Host(`${PROMETHEUS_HOST}`)"
+      traefik.http.routers.prometheus.entrypoints: websecure
+      traefik.http.routers.prometheus.tls: "true"
+      traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+      # Homepage
+      homepage.group: Monitoring
+      homepage.name: Prometheus
+      homepage.icon: prometheus
+      homepage.href: "https://${PROMETHEUS_HOST}"
+      homepage.description: Metrics & Alerting
+      homepage.widget.type: prometheus
+      homepage.widget.url: "http://prometheus:9090"
+
+  # =========================================================================
+  # Grafana - Metrics Visualization
+  # =========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    profiles: [monitoring]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: "https://${GRAFANA_HOST}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.grafana.rule: "Host(`${GRAFANA_HOST}`)"
+      traefik.http.routers.grafana.entrypoints: websecure
+      traefik.http.routers.grafana.tls: "true"
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+      # Homepage
+      homepage.group: Monitoring
+      homepage.name: Grafana
+      homepage.icon: grafana
+      homepage.href: "https://${GRAFANA_HOST}"
+      homepage.description: Dashboards & Visualization
+      homepage.widget.type: grafana
+      homepage.widget.url: "http://grafana:3000"
+      homepage.widget.username: "${GRAFANA_ADMIN_USER}"
+      homepage.widget.password: "${GRAFANA_ADMIN_PASSWORD}"
+
+  # =========================================================================
+  # Loki - Log Aggregation
+  # =========================================================================
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+    profiles: [monitoring]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      homepage.group: Monitoring
+      homepage.name: Loki
+      homepage.icon: loki
+      homepage.href: "https://${GRAFANA_HOST}/explore"
+      homepage.description: Log Aggregation Engine
+
+  # =========================================================================
+  # Promtail - Log Collector
+  # =========================================================================
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    restart: unless-stopped
+    profiles: [monitoring]
+    networks:
+      - devstack
+    volumes:
+      - ./promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      homepage.group: Monitoring
+      homepage.name: Promtail
+      homepage.icon: loki
+      homepage.href: "https://${GRAFANA_HOST}/explore"
+      homepage.description: Log Collector Agent
+
+  # =========================================================================
+  # MinIO - Object Storage
+  # =========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    profiles: [storage]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/minio-data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    labels:
+      traefik.enable: "true"
+      # Console UI
+      traefik.http.routers.minio-console.rule: "Host(`${MINIO_HOST}`)"
+      traefik.http.routers.minio-console.entrypoints: websecure
+      traefik.http.routers.minio-console.tls: "true"
+      traefik.http.routers.minio-console.service: minio-console
+      traefik.http.services.minio-console.loadbalancer.server.port: "9001"
+      # S3 API
+      traefik.http.routers.minio-api.rule: "Host(`${MINIO_API_HOST}`)"
+      traefik.http.routers.minio-api.entrypoints: websecure
+      traefik.http.routers.minio-api.tls: "true"
+      traefik.http.routers.minio-api.service: minio-api
+      traefik.http.services.minio-api.loadbalancer.server.port: "9000"
+      # Homepage
+      homepage.group: Storage
+      homepage.name: MinIO
+      homepage.icon: minio
+      homepage.href: "https://${MINIO_HOST}"
+      homepage.description: S3-Compatible Object Storage
+
+  # =========================================================================
+  # Vault - Secret Management
+  # =========================================================================
+  vault:
+    image: hashicorp/vault:latest
+    container_name: vault
+    restart: unless-stopped
+    profiles: [security]
+    networks:
+      - devstack
+    volumes:
+      - ./volumes/vault-data:/vault/data
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    command: server
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.vault.rule: "Host(`${VAULT_HOST}`)"
+      traefik.http.routers.vault.entrypoints: websecure
+      traefik.http.routers.vault.tls: "true"
+      traefik.http.services.vault.loadbalancer.server.port: "8200"
+      # Homepage
+      homepage.group: Security
+      homepage.name: Vault
+      homepage.icon: vault
+      homepage.href: "https://${VAULT_HOST}"
+      homepage.description: Secret Management
+
+  # =========================================================================
+  # Portainer - Container Management
+  # =========================================================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    profiles: [infra]
+    networks:
+      - devstack
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./volumes/portainer-data:/data
+    healthcheck:
+      test: ["CMD", "/portainer", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.portainer.rule: "Host(`${PORTAINER_HOST}`)"
+      traefik.http.routers.portainer.entrypoints: websecure
+      traefik.http.routers.portainer.tls: "true"
+      traefik.http.services.portainer.loadbalancer.server.port: "9000"
+      # Homepage
+      homepage.group: Infrastructure
+      homepage.name: Portainer
+      homepage.icon: portainer
+      homepage.href: "https://${PORTAINER_HOST}"
+      homepage.description: Container Management UI
+      homepage.widget.type: portainer
+      homepage.widget.url: "https://portainer:9443"
+      homepage.widget.env: "2"
+
+  # =========================================================================
+  # Watchtower - Automatic Container Updates
+  # =========================================================================
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    networks:
+      - devstack
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_SCHEDULE: "0 0 4 * * *"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_REVIVE_STOPPED: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    labels:
+      homepage.group: Infrastructure
+      homepage.name: Watchtower
+      homepage.icon: watchtower
+      homepage.href: ""
+      homepage.description: Auto-updates containers daily at 4 AM
+
+  # =========================================================================
+  # Homepage - Dashboard
+  # =========================================================================
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    networks:
+      - devstack
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: "${HOMEPAGE_HOST}"
+    volumes:
+      - ./homepage/config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.homepage.rule: "Host(`${HOMEPAGE_HOST}`)"
+      traefik.http.routers.homepage.entrypoints: websecure
+      traefik.http.routers.homepage.tls: "true"
+      traefik.http.services.homepage.loadbalancer.server.port: "3000"
+      # Homepage self-entry
+      homepage.group: Infrastructure
+      homepage.name: Homepage
+      homepage.icon: homepage
+      homepage.href: "https://${HOMEPAGE_HOST}"
+      homepage.description: Service Dashboard

@@ -1,0 +1,21 @@
+title: Developer Workspace
+
+theme: dark
+color: slate
+
+layout:
+  Development:
+    style: row
+    columns: 2
+  Storage:
+    style: row
+    columns: 2
+  Monitoring:
+    style: row
+    columns: 2
+  Security:
+    style: row
+    columns: 1
+  Infrastructure:
+    style: row
+    columns: 3

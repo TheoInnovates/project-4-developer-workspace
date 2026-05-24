@@ -1,0 +1,3 @@
+---
+# Services are auto-discovered via Docker labels.
+# Add manual entries here only for non-Docker services.

@@ -1,0 +1,21 @@
+# OCI Authentication
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+user_ocid        = "ocid1.user.oc1..aaaaaaaaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "us-ashburn-1"
+
+# OCI Resources
+compartment_ocid = "ocid1.compartment.oc1..aaaaaaaaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+# Instance Sizing (Always Free A1.Flex limits: 4 OCPUs, 24 GB)
+instance_ocpus     = 4
+instance_memory_gb = 24
+boot_volume_gb     = 100
+
+# Access
+ssh_public_key     = "ssh-ed25519 AAAA... user@host"
+tailscale_auth_key = "tskey-auth-XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+# Repository
+github_repo_url = "https://github.com/YOUR_USERNAME/Developer_Workspace.git"

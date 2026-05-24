@@ -1,0 +1,16 @@
+# Cloud deployment overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d
+
+services:
+  # Bind Traefik to localhost only — Tailscale handles external access
+  traefik:
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+
+  # Bump GitLab memory on 24 GB instance
+  gitlab:
+    deploy:
+      resources:
+        limits:
+          memory: 8G
