@@ -15,7 +15,12 @@ jobs:
       - name: Create dummy .env for validation
         run: |
           grep -oP '\$\{(\w+)\}' docker-compose.yml | sort -u | sed 's/\${//;s/}//' | \
-            while read var; do echo "${var}=placeholder"; done > .env
+            while read var; do
+              case "$var" in
+                *PORT*) echo "${var}=8080" ;;
+                *)      echo "${var}=placeholder" ;;
+              esac
+            done > .env
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
 
