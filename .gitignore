@@ -9,6 +9,9 @@ traefik/certs/
 .env.cloud
 .env.aws
 
+# Homepage logs
+homepage/config/logs/
+
 # OpenTofu / Terraform state
 infra/.terraform/
 infra/.terraform.lock.hcl
