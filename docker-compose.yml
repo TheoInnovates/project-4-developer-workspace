@@ -640,3 +640,162 @@ services:
       homepage.icon: qwen
       homepage.href: "http://${VLLM_CODER_HREF_HOST:-localhost}:${VLLM_CODER_PORT:-8001}"
       homepage.description: "vLLM serving ${VLLM_CODER_MODEL:-}"
+
+  # =========================================================================
+  # OpenWebUI - Chat frontend for the vLLM endpoints
+  # =========================================================================
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: openwebui
+    restart: unless-stopped
+    profiles: [webui]
+    networks:
+      - devstack
+    volumes:
+      - ${VOLUMES_BASE}/openwebui-data:/app/backend/data
+    environment:
+      WEBUI_NAME: ${WEBUI_NAME:-Devstack}
+      WEBUI_URL: "https://${OPENWEBUI_HOST}"
+      OPENAI_API_BASE_URLS: ${OPENWEBUI_API_BASE_URLS}
+      OPENAI_API_KEYS: ${OPENWEBUI_API_KEYS}
+      ENABLE_RAG_WEB_SEARCH: ${ENABLE_RAG_WEB_SEARCH:-false}
+      RAG_WEB_SEARCH_ENGINE: ${RAG_WEB_SEARCH_ENGINE:-searxng}
+      SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>&format=json"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.openwebui.rule: "Host(`${OPENWEBUI_HOST}`)"
+      traefik.http.routers.openwebui.entrypoints: websecure
+      traefik.http.routers.openwebui.tls: "true"
+      traefik.http.services.openwebui.loadbalancer.server.port: "8080"
+      homepage.group: Inference
+      homepage.name: OpenWebUI
+      homepage.icon: open-webui
+      homepage.href: "https://${OPENWEBUI_HOST}"
+      homepage.description: Chat frontend across local vLLM models
+
+  # =========================================================================
+  # SearXNG - Private metasearch (web search backend for OpenWebUI RAG)
+  # =========================================================================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    profiles: [search]
+    networks:
+      - devstack
+    volumes:
+      - ${VOLUMES_BASE}/searxng:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: "https://${SEARXNG_HOST}/"
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      INSTANCE_NAME: ${WEBUI_NAME:-Devstack}
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ -O /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.searxng.rule: "Host(`${SEARXNG_HOST}`)"
+      traefik.http.routers.searxng.entrypoints: websecure
+      traefik.http.routers.searxng.tls: "true"
+      traefik.http.services.searxng.loadbalancer.server.port: "8080"
+      homepage.group: Apps
+      homepage.name: SearXNG
+      homepage.icon: searxng
+      homepage.href: "https://${SEARXNG_HOST}"
+      homepage.description: Private metasearch (also feeds OpenWebUI RAG)
+
+  # =========================================================================
+  # code-server - VS Code in the browser
+  # =========================================================================
+  code-server:
+    image: lscr.io/linuxserver/code-server:latest
+    container_name: code-server
+    restart: unless-stopped
+    profiles: [ide]
+    networks:
+      - devstack
+    volumes:
+      - ${VOLUMES_BASE}/code-server-config:/config
+      - ${CODESERVER_WORKSPACE:-/home/tforrester/projects}:/config/workspace
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      PASSWORD: ${CODESERVER_PASSWORD}
+      SUDO_PASSWORD: ${CODESERVER_SUDO_PASSWORD:-}
+      DEFAULT_WORKSPACE: /config/workspace
+      PROXY_DOMAIN: ${CODESERVER_HOST}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8443/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.code-server.rule: "Host(`${CODESERVER_HOST}`)"
+      traefik.http.routers.code-server.entrypoints: websecure
+      traefik.http.routers.code-server.tls: "true"
+      traefik.http.services.code-server.loadbalancer.server.port: "8443"
+      homepage.group: Development
+      homepage.name: code-server
+      homepage.icon: vscode
+      homepage.href: "https://${CODESERVER_HOST}"
+      homepage.description: VS Code in the browser
+
+  # =========================================================================
+  # Uptime Kuma - Self-hosted status / uptime monitor
+  # =========================================================================
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    profiles: [status]
+    networks:
+      - devstack
+    volumes:
+      - ${VOLUMES_BASE}/uptime-kuma:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "extra/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.uptime.rule: "Host(`${UPTIME_HOST}`)"
+      traefik.http.routers.uptime.entrypoints: websecure
+      traefik.http.routers.uptime.tls: "true"
+      traefik.http.services.uptime.loadbalancer.server.port: "3001"
+      homepage.group: Monitoring
+      homepage.name: Uptime Kuma
+      homepage.icon: uptime-kuma
+      homepage.href: "https://${UPTIME_HOST}"
+      homepage.description: Status dashboard
