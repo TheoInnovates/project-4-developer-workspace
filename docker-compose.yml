@@ -60,9 +60,9 @@ services:
     ports:
       - "${GITLAB_SSH_PORT}:22"
     volumes:
-      - E:/devstack/volumes/gitlab-config:/etc/gitlab
-      - E:/devstack/volumes/gitlab-logs:/var/log/gitlab
-      - E:/devstack/volumes/gitlab-data:/var/opt/gitlab
+      - ${VOLUMES_BASE}/gitlab-config:/etc/gitlab
+      - ${VOLUMES_BASE}/gitlab-logs:/var/log/gitlab
+      - ${VOLUMES_BASE}/gitlab-data:/var/opt/gitlab
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url 'https://${GITLAB_HOST}'
@@ -121,7 +121,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/gitlab-runner-config:/etc/gitlab-runner
+      - ${VOLUMES_BASE}/gitlab-runner-config:/etc/gitlab-runner
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       gitlab:
@@ -156,7 +156,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/nexus-data:/nexus-data
+      - ${VOLUMES_BASE}/nexus-data:/nexus-data
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/service/rest/v1/status || exit 1"]
       interval: 30s
@@ -198,7 +198,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/registry-data:/var/lib/registry
+      - ${VOLUMES_BASE}/registry-data:/var/lib/registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     healthcheck:
@@ -239,7 +239,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts:/etc/prometheus/alerts:ro
-      - E:/devstack/volumes/prometheus-data:/prometheus
+      - ${VOLUMES_BASE}/prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -283,7 +283,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/grafana-data:/var/lib/grafana
+      - ${VOLUMES_BASE}/grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
@@ -329,7 +329,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/loki-data:/loki
+      - ${VOLUMES_BASE}/loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
@@ -395,7 +395,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/minio-data:/data
+      - ${VOLUMES_BASE}/minio-data:/data
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -443,7 +443,7 @@ services:
     networks:
       - devstack
     volumes:
-      - E:/devstack/volumes/vault-data:/vault/data
+      - ${VOLUMES_BASE}/vault-data:/vault/data
       - ./vault/config.hcl:/vault/config/config.hcl:ro
     environment:
       VAULT_ADDR: "http://127.0.0.1:8200"
@@ -485,7 +485,7 @@ services:
       - devstack
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - E:/devstack/volumes/portainer-data:/data
+      - ${VOLUMES_BASE}/portainer-data:/data
     healthcheck:
       test: ["CMD", "/portainer", "--version"]
       interval: 30s
@@ -577,3 +577,66 @@ services:
       homepage.icon: homepage
       homepage.href: "https://${HOMEPAGE_HOST}"
       homepage.description: Service Dashboard
+
+  # =========================================================================
+  # vLLM - Inference (GPU, host-network, profile-gated per Spark)
+  # =========================================================================
+  vllm-nemotron:
+    image: nvcr.io/nvidia/vllm:26.03-py3
+    container_name: vllm-nemotron
+    restart: unless-stopped
+    profiles: [nemotron]
+    network_mode: host
+    ipc: host
+    shm_size: "10.24g"
+    environment:
+      NEMOTRON_SUPER_MODEL: ${VLLM_NEMOTRON_MODEL}
+      VLLM_API_KEY: ${VLLM_API_KEY}
+    volumes:
+      - ./scripts/vllm/start-nemotron.sh:/workspace/start.sh:ro
+      - ${HF_CACHE_DIR}:/root/.cache/huggingface
+    command: bash /workspace/start.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      homepage.group: Inference
+      homepage.name: Nemotron Super 49B
+      homepage.icon: nvidia
+      homepage.href: "http://${VLLM_NEMOTRON_HREF_HOST:-localhost}:${VLLM_NEMOTRON_PORT:-8001}"
+      homepage.description: "vLLM serving ${VLLM_NEMOTRON_MODEL:-}"
+
+  vllm-coder:
+    image: nvcr.io/nvidia/vllm:26.03-py3
+    container_name: vllm-coder
+    restart: unless-stopped
+    profiles: [coder]
+    network_mode: host
+    ipc: host
+    shm_size: "10.24g"
+    environment:
+      CODER_MAIN_MODEL: ${VLLM_CODER_MODEL}
+      VLLM_API_KEY: ${VLLM_API_KEY}
+    volumes:
+      - ./scripts/vllm/start-coder.sh:/workspace/start.sh:ro
+      - ${HF_CACHE_DIR}:/root/.cache/huggingface
+    command: bash /workspace/start.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      homepage.group: Inference
+      homepage.name: Qwen3-Coder-Next
+      homepage.icon: qwen
+      homepage.href: "http://${VLLM_CODER_HREF_HOST:-localhost}:${VLLM_CODER_PORT:-8001}"
+      homepage.description: "vLLM serving ${VLLM_CODER_MODEL:-}"
