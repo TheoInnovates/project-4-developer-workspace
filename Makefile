@@ -45,7 +45,8 @@ pull:
 top:
 	docker stats --no-stream
 
-# Register GitLab Runner (interactive — pass TOKEN=<token>)
+# Register GitLab Runner manually (pass TOKEN=<token>)
+# For automated registration, use: make gitlab-setup
 register-runner:
 	docker exec -it gitlab-runner gitlab-runner register \
 		--url https://gitlab.local \

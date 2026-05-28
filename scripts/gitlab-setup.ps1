@@ -30,7 +30,7 @@ public class TrustAll {
 Write-Host "Creating temporary root API token via rails console..." -ForegroundColor Cyan
 docker exec gitlab bash -c @"
 cat > /tmp/create_token.rb << 'RUBY'
-token = User.find_by_username('root').personal_access_tokens.create!(name: 'setup-script', scopes: ['api'], expires_at: 1.hour.from_now)
+token = User.find_by_username('root').personal_access_tokens.create!(name: 'setup-script', scopes: ['api', 'create_runner'], expires_at: 1.day.from_now)
 puts token.token
 RUBY
 "@
@@ -102,10 +102,51 @@ try {
     Write-Host "  Done." -ForegroundColor Green
 } catch {
     $errBody = $_.ErrorDetails.Message
-    if ($errBody -match "already a member") {
+    if ($errBody -match "already a member|Member already exists") {
         Write-Host "  'theo' is already a member, skipping." -ForegroundColor Yellow
     } else {
         Write-Host "ERROR: Failed to add user to group. $errBody" -ForegroundColor Red
+    }
+}
+
+# --- Register GitLab Runner ---
+Write-Host "Checking GitLab Runner registration..." -ForegroundColor Cyan
+$configContent = docker exec gitlab-runner cat /etc/gitlab-runner/config.toml 2>$null
+if ($LASTEXITCODE -eq 0 -and $configContent -match "\[\[runners\]\]") {
+    Write-Host "  Runner already registered, skipping." -ForegroundColor Yellow
+} else {
+    Write-Host "  Creating instance runner via API..." -ForegroundColor Cyan
+    $runnerBody = @{
+        runner_type  = "instance_type"
+        description  = "devstack-runner"
+        tag_list     = @("docker", "devstack")
+        run_untagged = $true
+    } | ConvertTo-Json
+    try {
+        $runner = Invoke-RestMethod -Uri "$GitLabUrl/api/v4/user/runners" -Method POST -Headers $headers -Body $runnerBody -ContentType "application/json"
+        $runnerToken = $runner.token
+        Write-Host "  Runner created (ID: $($runner.id))." -ForegroundColor Green
+    } catch {
+        $errBody = $_.ErrorDetails.Message
+        Write-Host "ERROR: Failed to create runner. $errBody" -ForegroundColor Red
+        # Continue to revoke token even if runner creation fails
+        $runnerToken = $null
+    }
+
+    if ($runnerToken) {
+        Write-Host "  Registering runner in container..." -ForegroundColor Cyan
+        docker exec gitlab-runner gitlab-runner register `
+            --non-interactive `
+            --url "http://gitlab" `
+            --token "$runnerToken" `
+            --executor docker `
+            --docker-image "alpine:latest" `
+            --docker-network-mode "devstack"
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  Runner registered successfully." -ForegroundColor Green
+        } else {
+            Write-Host "ERROR: Runner registration failed." -ForegroundColor Red
+        }
     }
 }
 
@@ -119,4 +160,5 @@ Write-Host "Setup complete!" -ForegroundColor Green
 Write-Host "  User:     theo" -ForegroundColor Cyan
 Write-Host "  Password: Th3o_Dev!2026 (change on first login)" -ForegroundColor Cyan
 Write-Host "  Group:    developers (Maintainer role)" -ForegroundColor Cyan
+Write-Host "  Runner:   devstack-runner (docker executor)" -ForegroundColor Cyan
 Write-Host "  Login:    $GitLabUrl" -ForegroundColor Cyan
