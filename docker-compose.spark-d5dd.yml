@@ -1,0 +1,35 @@
+# Spark 1 (spark-d5dd) overrides: dev stack + Nemotron co-tenant on ARM64 Ubuntu
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.spark-d5dd.yml \
+#     --env-file .env.spark-d5dd up -d
+
+services:
+  # Traefik on Tailscale-only network — bind to localhost
+  traefik:
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+
+  # GitLab — heavier limit since the Spark has plenty of RAM
+  gitlab:
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  # Nexus benefits from JVM headroom on ARM
+  nexus:
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+  # Prometheus with extra room for the vLLM scrape targets, and DNS for both Sparks
+  prometheus:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach vllm-nemotron on this host's network namespace
+      - "spark-06ad:192.168.100.10"           # reach vllm-coder over LAN (LAN HEAD_IP from old cortex-worker.yml)
+    deploy:
+      resources:
+        limits:
+          memory: 768M

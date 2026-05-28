@@ -1,0 +1,10 @@
+# Spark 2 (spark-06ad) overrides: Coder vLLM only, no dev stack
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.spark-06ad.yml \
+#     --env-file .env.spark-06ad --profile coder up -d
+#
+# Currently no overrides are needed — the base vllm-coder definition works as-is.
+# This file exists so the deploy.sh dispatch table is symmetric with spark-d5dd
+# and so future tweaks have an obvious home.
+
+services: {}

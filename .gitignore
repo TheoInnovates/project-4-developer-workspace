@@ -8,6 +8,10 @@ traefik/certs/
 .env
 .env.cloud
 .env.aws
+.env.spark-d5dd
+.env.spark-06ad
+# Allow committed examples
+!.env.*.example
 
 # Homepage logs
 homepage/config/logs/
