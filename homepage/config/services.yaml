@@ -1,3 +1,10 @@
 ---
 # Services are auto-discovered via Docker labels.
 # Add manual entries here only for non-Docker services.
+
+- Inference:
+    - Qwen3-Coder-Next (Spark 2):
+        href: http://spark-06ad:8001
+        icon: qwen
+        description: Remote vLLM on spark-06ad serving Qwen3-Coder-Next-FP8
+        ping: spark-06ad

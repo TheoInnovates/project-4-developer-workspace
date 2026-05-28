@@ -47,3 +47,15 @@ scrape_configs:
       format: ["prometheus"]
     static_configs:
       - targets: ["vault:8200"]
+
+  # vLLM on Spark 1 (this host) — host network, reachable via the docker bridge gateway
+  - job_name: vllm-nemotron
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8001"]
+
+  # vLLM on Spark 2 (remote) — reachable by Tailscale MagicDNS
+  - job_name: vllm-coder
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["spark-06ad:8001"]
