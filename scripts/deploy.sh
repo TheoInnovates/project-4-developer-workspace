@@ -25,7 +25,7 @@ case "$TARGET" in
   spark-d5dd)
     ENV_FILE=".env.spark-d5dd"
     OVERLAY="docker-compose.spark-d5dd.yml"
-    PROFILES="dev,monitoring,storage,security,infra,nemotron"
+    PROFILES="dev,monitoring,storage,security,infra,nemotron,webui,search,ide,status"
     SSH_TARGET=""                                          # run locally on spark-d5dd
     REMOTE_DIR="$REPO_ROOT"
     ;;

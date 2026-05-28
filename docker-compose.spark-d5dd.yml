@@ -33,3 +33,9 @@ services:
       resources:
         limits:
           memory: 768M
+
+  # OpenWebUI needs the same DNS escape hatches to reach both vLLM endpoints
+  openwebui:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "spark-06ad:192.168.100.10"
