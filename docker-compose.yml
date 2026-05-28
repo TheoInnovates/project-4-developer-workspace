@@ -25,7 +25,7 @@ services:
       - ./caddy/certs:/certs:ro
       - ${VOLUMES_BASE}/caddy-data:/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:2019/metrics"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/metrics"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -317,12 +317,8 @@ services:
     volumes:
       - ${VOLUMES_BASE}/loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+    # No healthcheck: the loki image is distroless (no shell/wget/curl), so an
+    # in-container HTTP probe can't run. Promtail's depends_on uses service_started.
     deploy:
       resources:
         limits:
@@ -350,7 +346,7 @@ services:
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9080/ready || exit 1"]
       interval: 30s
@@ -716,7 +712,7 @@ services:
       DEFAULT_WORKSPACE: /config/workspace
       PROXY_DOMAIN: ${CODESERVER_HOST}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8443/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8443/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
