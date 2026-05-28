@@ -6,8 +6,10 @@
 services:
   # Caddy bound to this host's Tailscale IP only — reachable from the tailnet
   # (via Route53 *.devhub.ninja -> ${TAILSCALE_IP}) but not the LAN/public.
+  # !override replaces the base 0.0.0.0 binding instead of merging with it
+  # (otherwise Caddy tries to bind both and collides on the port).
   caddy:
-    ports:
+    ports: !override
       - "${TAILSCALE_IP}:80:80"
       - "${TAILSCALE_IP}:443:443"
 

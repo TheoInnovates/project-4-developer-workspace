@@ -493,7 +493,7 @@ services:
   # Watchtower - Automatic Container Updates
   # =========================================================================
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
     networks:
