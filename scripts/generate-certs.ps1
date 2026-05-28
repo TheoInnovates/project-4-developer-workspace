@@ -6,7 +6,7 @@
     Generates a wildcard certificate covering all workspace domains.
 #>
 
-$certsDir = Join-Path $PSScriptRoot "..\traefik\certs"
+$certsDir = Join-Path $PSScriptRoot "..\caddy\certs"
 
 # Ensure certs directory exists
 if (-not (Test-Path $certsDir)) {
@@ -35,7 +35,7 @@ $domains = @(
     "nexus.local",
     "prometheus.local",
     "grafana.local",
-    "traefik.local",
+    "caddy.local",
     "portainer.local",
     "registry.local",
     "minio.local",

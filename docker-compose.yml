@@ -5,24 +5,27 @@ networks:
 
 services:
   # =========================================================================
-  # Traefik - Reverse Proxy
+  # Caddy - Reverse Proxy (caddy-docker-proxy, label-driven)
   # =========================================================================
-  traefik:
-    image: traefik:v3.3
-    container_name: traefik
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:2.10-alpine
+    container_name: caddy
     restart: unless-stopped
     networks:
       - devstack
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      # Base Caddyfile providing global options + the reusable (tls_certs) snippet
+      CADDY_DOCKER_CADDYFILE_PATH: /etc/caddy/Caddyfile
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      - ./traefik/certs:/etc/traefik/certs:ro
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/certs:/certs:ro
+      - ${VOLUMES_BASE}/caddy-data:/data
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/metrics"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -32,19 +35,12 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.traefik.rule: "Host(`${TRAEFIK_HOST}`)"
-      traefik.http.routers.traefik.entrypoints: websecure
-      traefik.http.routers.traefik.tls: "true"
-      traefik.http.routers.traefik.service: api@internal
-      # Homepage
+      # Caddy has no web dashboard; the admin/metrics API is exposed on :2019
       homepage.group: Infrastructure
-      homepage.name: Traefik
-      homepage.icon: traefik
-      homepage.href: "https://${TRAEFIK_HOST}"
-      homepage.description: Reverse Proxy & Load Balancer
-      homepage.widget.type: traefik
-      homepage.widget.url: "https://traefik:443"
+      homepage.name: Caddy
+      homepage.icon: caddy
+      homepage.href: ""
+      homepage.description: Reverse Proxy & TLS
 
   # =========================================================================
   # GitLab CE - Source Control
@@ -68,7 +64,7 @@ services:
         external_url 'https://${GITLAB_HOST}'
         gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD}'
 
-        # Use Traefik for TLS termination
+        # Use Caddy for TLS termination
         nginx['listen_port'] = 80
         nginx['listen_https'] = false
 
@@ -98,11 +94,9 @@ services:
           memory: 6G
     shm_size: 256m
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.gitlab.rule: "Host(`${GITLAB_HOST}`)"
-      traefik.http.routers.gitlab.entrypoints: websecure
-      traefik.http.routers.gitlab.tls: "true"
-      traefik.http.services.gitlab.loadbalancer.server.port: "80"
+      caddy: ${GITLAB_HOST}
+      caddy.reverse_proxy: "{{upstreams 80}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Development
       homepage.name: GitLab
@@ -173,11 +167,9 @@ services:
         -Xmx1536m
         -XX:MaxDirectMemorySize=512m
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.nexus.rule: "Host(`${NEXUS_HOST}`)"
-      traefik.http.routers.nexus.entrypoints: websecure
-      traefik.http.routers.nexus.tls: "true"
-      traefik.http.services.nexus.loadbalancer.server.port: "8081"
+      caddy: ${NEXUS_HOST}
+      caddy.reverse_proxy: "{{upstreams 8081}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Development
       homepage.name: Nexus
@@ -212,11 +204,9 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.registry.rule: "Host(`${REGISTRY_HOST}`)"
-      traefik.http.routers.registry.entrypoints: websecure
-      traefik.http.routers.registry.tls: "true"
-      traefik.http.services.registry.loadbalancer.server.port: "5000"
+      caddy: ${REGISTRY_HOST}
+      caddy.reverse_proxy: "{{upstreams 5000}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Development
       homepage.name: Registry
@@ -256,11 +246,9 @@ services:
         limits:
           memory: 512M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.prometheus.rule: "Host(`${PROMETHEUS_HOST}`)"
-      traefik.http.routers.prometheus.entrypoints: websecure
-      traefik.http.routers.prometheus.tls: "true"
-      traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+      caddy: ${PROMETHEUS_HOST}
+      caddy.reverse_proxy: "{{upstreams 9090}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Monitoring
       homepage.name: Prometheus
@@ -300,11 +288,9 @@ services:
         limits:
           memory: 256M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.grafana.rule: "Host(`${GRAFANA_HOST}`)"
-      traefik.http.routers.grafana.entrypoints: websecure
-      traefik.http.routers.grafana.tls: "true"
-      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+      caddy: ${GRAFANA_HOST}
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Monitoring
       homepage.name: Grafana
@@ -412,19 +398,14 @@ services:
         limits:
           memory: 512M
     labels:
-      traefik.enable: "true"
       # Console UI
-      traefik.http.routers.minio-console.rule: "Host(`${MINIO_HOST}`)"
-      traefik.http.routers.minio-console.entrypoints: websecure
-      traefik.http.routers.minio-console.tls: "true"
-      traefik.http.routers.minio-console.service: minio-console
-      traefik.http.services.minio-console.loadbalancer.server.port: "9001"
+      caddy_0: ${MINIO_HOST}
+      caddy_0.reverse_proxy: "{{upstreams 9001}}"
+      caddy_0.import: tls_certs
       # S3 API
-      traefik.http.routers.minio-api.rule: "Host(`${MINIO_API_HOST}`)"
-      traefik.http.routers.minio-api.entrypoints: websecure
-      traefik.http.routers.minio-api.tls: "true"
-      traefik.http.routers.minio-api.service: minio-api
-      traefik.http.services.minio-api.loadbalancer.server.port: "9000"
+      caddy_1: ${MINIO_API_HOST}
+      caddy_1.reverse_proxy: "{{upstreams 9000}}"
+      caddy_1.import: tls_certs
       # Homepage
       homepage.group: Storage
       homepage.name: MinIO
@@ -461,11 +442,9 @@ services:
         limits:
           memory: 256M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.vault.rule: "Host(`${VAULT_HOST}`)"
-      traefik.http.routers.vault.entrypoints: websecure
-      traefik.http.routers.vault.tls: "true"
-      traefik.http.services.vault.loadbalancer.server.port: "8200"
+      caddy: ${VAULT_HOST}
+      caddy.reverse_proxy: "{{upstreams 8200}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Security
       homepage.name: Vault
@@ -497,11 +476,9 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.portainer.rule: "Host(`${PORTAINER_HOST}`)"
-      traefik.http.routers.portainer.entrypoints: websecure
-      traefik.http.routers.portainer.tls: "true"
-      traefik.http.services.portainer.loadbalancer.server.port: "9000"
+      caddy: ${PORTAINER_HOST}
+      caddy.reverse_proxy: "{{upstreams 9000}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Infrastructure
       homepage.name: Portainer
@@ -566,11 +543,9 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.homepage.rule: "Host(`${HOMEPAGE_HOST}`)"
-      traefik.http.routers.homepage.entrypoints: websecure
-      traefik.http.routers.homepage.tls: "true"
-      traefik.http.services.homepage.loadbalancer.server.port: "3000"
+      caddy: ${HOMEPAGE_HOST}
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+      caddy.import: tls_certs
       # Homepage self-entry
       homepage.group: Infrastructure
       homepage.name: Homepage
@@ -672,11 +647,9 @@ services:
         limits:
           memory: 1G
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.openwebui.rule: "Host(`${OPENWEBUI_HOST}`)"
-      traefik.http.routers.openwebui.entrypoints: websecure
-      traefik.http.routers.openwebui.tls: "true"
-      traefik.http.services.openwebui.loadbalancer.server.port: "8080"
+      caddy: ${OPENWEBUI_HOST}
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.import: tls_certs
       homepage.group: Inference
       homepage.name: OpenWebUI
       homepage.icon: open-webui
@@ -712,11 +685,9 @@ services:
         limits:
           memory: 512M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.searxng.rule: "Host(`${SEARXNG_HOST}`)"
-      traefik.http.routers.searxng.entrypoints: websecure
-      traefik.http.routers.searxng.tls: "true"
-      traefik.http.services.searxng.loadbalancer.server.port: "8080"
+      caddy: ${SEARXNG_HOST}
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.import: tls_certs
       homepage.group: Apps
       homepage.name: SearXNG
       homepage.icon: searxng
@@ -755,11 +726,9 @@ services:
         limits:
           memory: 2G
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.code-server.rule: "Host(`${CODESERVER_HOST}`)"
-      traefik.http.routers.code-server.entrypoints: websecure
-      traefik.http.routers.code-server.tls: "true"
-      traefik.http.services.code-server.loadbalancer.server.port: "8443"
+      caddy: ${CODESERVER_HOST}
+      caddy.reverse_proxy: "{{upstreams 8443}}"
+      caddy.import: tls_certs
       homepage.group: Development
       homepage.name: code-server
       homepage.icon: vscode
@@ -789,11 +758,9 @@ services:
         limits:
           memory: 256M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.uptime.rule: "Host(`${UPTIME_HOST}`)"
-      traefik.http.routers.uptime.entrypoints: websecure
-      traefik.http.routers.uptime.tls: "true"
-      traefik.http.services.uptime.loadbalancer.server.port: "3001"
+      caddy: ${UPTIME_HOST}
+      caddy.reverse_proxy: "{{upstreams 3001}}"
+      caddy.import: tls_certs
       homepage.group: Monitoring
       homepage.name: Uptime Kuma
       homepage.icon: uptime-kuma

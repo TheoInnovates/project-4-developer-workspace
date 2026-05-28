@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a **Docker Compose-based local developer workspace** running on Windows 11. It provisions a full self-hosted development infrastructure stack behind a Traefik reverse proxy with local TLS (`*.local` domains). All services share a single Docker bridge network called `devstack`.
+This is a **Docker Compose-based local developer workspace** running on Windows 11. It provisions a full self-hosted development infrastructure stack behind a Caddy reverse proxy with local TLS (`*.local` domains). All services share a single Docker bridge network called `devstack`.
 
 ## Commands
 
@@ -32,7 +32,7 @@ docker compose restart <service-name>
 
 ## Architecture
 
-**Reverse Proxy:** Traefik v3.3 terminates TLS for all services. Config is split between `traefik/traefik.yml` (static — entrypoints, providers) and `traefik/dynamic/` (dynamic — TLS certs). HTTP auto-redirects to HTTPS. Docker labels on each service define routing rules (`Host()` matchers using env vars from `.env`).
+**Reverse Proxy:** Caddy (via the `caddy-docker-proxy` image) terminates TLS for all services. A small base `caddy/Caddyfile` holds global options (admin/metrics API on `:2019`) and a reusable `(tls_certs)` snippet; per-service routing is generated dynamically from `caddy.*` Docker labels on each service (`caddy: <host>`, `caddy.reverse_proxy: {{upstreams <port>}}`, `caddy.import: tls_certs`). HTTP auto-redirects to HTTPS.
 
 **Services by function:**
 
@@ -42,18 +42,17 @@ docker compose restart <service-name>
 | Monitoring | Prometheus, Grafana, Loki + Promtail (logs) |
 | Storage | MinIO (S3-compatible object storage) |
 | Security | HashiCorp Vault (secret management) |
-| Infrastructure | Traefik, Portainer (container UI), Watchtower (auto-updates at 4 AM), Homepage (dashboard) |
+| Infrastructure | Caddy, Portainer (container UI), Watchtower (auto-updates at 4 AM), Homepage (dashboard) |
 
 **Networking:** All services resolve each other by container name on the `devstack` network. External access is through `*.local` domains mapped to `127.0.0.1` in the hosts file.
 
-**Configuration pattern:** Each service with external config has a dedicated directory at the repo root (e.g., `traefik/`, `prometheus/`, `grafana/provisioning/`, `promtail/`, `vault/`, `homepage/config/`). Persistent data lives in `volumes/` (gitignored).
+**Configuration pattern:** Each service with external config has a dedicated directory at the repo root (e.g., `caddy/`, `prometheus/`, `grafana/provisioning/`, `promtail/`, `vault/`, `homepage/config/`). Persistent data lives in `volumes/` (gitignored).
 
 ## Key Files
 
-- `docker-compose.yml` — Single compose file defining all services, healthchecks, resource limits, and Traefik labels
+- `docker-compose.yml` — Single compose file defining all services, healthchecks, resource limits, and Caddy labels
 - `.env` — Hostnames, credentials, and ports (gitignored — contains passwords)
-- `traefik/traefik.yml` — Traefik static config (entrypoints, Docker/file providers, Prometheus metrics on `:8082`)
-- `traefik/dynamic/tls.yml` — TLS certificate references
+- `caddy/Caddyfile` — Caddy base config (global options: admin/metrics API on `:2019`; the `(tls_certs)` snippet). Routes themselves come from per-service Docker labels.
 - `prometheus/prometheus.yml` — Scrape targets for all services
 - `grafana/provisioning/` — Datasource (Prometheus) and dashboard provisioning
 - `homepage/config/` — Dashboard layout; services auto-discovered via Docker labels (`homepage.*`)
@@ -70,7 +69,7 @@ Services are grouped into Docker Compose profiles, controlled by the git-tracked
 | `security` | vault |
 | `infra` | portainer |
 
-**Always on** (no profile): traefik, homepage, watchtower
+**Always on** (no profile): caddy, homepage, watchtower
 
 To disable a group, remove it from `COMPOSE_PROFILES` in `stack.env` and redeploy. The wrapper scripts (`start.ps1`, `stop.ps1`, `deploy.sh`) automatically load `stack.env`.
 
@@ -84,7 +83,7 @@ The stack supports three TLS/domain modes, controlled by `TLS_PROFILE` in `stack
 | `cloud` | `.env.cloud` | `*.devstack` | Self-signed via cloud-init OpenSSL |
 | `aws` | `.env.aws` | `*.example.com` | ACM-exported certs (`scripts/import-acm-certs.ps1`) |
 
-All modes use standardized filenames `cert.pem` / `key.pem` in `traefik/certs/`.
+All modes use standardized filenames `cert.pem` / `key.pem` in `caddy/certs/`.
 
 **Quick start with AWS domain:**
 ```powershell
@@ -104,10 +103,10 @@ powershell -File scripts/start.ps1
 
 ## Conventions
 
-- Services expose themselves to Traefik via Docker labels (`traefik.enable: "true"`) — `exposedByDefault` is false
+- Services expose themselves to Caddy via Docker labels (`caddy: ${HOST}` + `caddy.reverse_proxy: {{upstreams <port>}}` + `caddy.import: tls_certs`); only running containers get routed
 - Homepage dashboard entries are also defined as Docker labels on each service
 - Hostnames follow the pattern `<service>.local`, configured in `.env` and referenced as `${VAR}` in compose labels
-- TLS certs are generated with `mkcert` and stored in `traefik/certs/` (gitignored)
+- TLS certs are generated with `mkcert` and stored in `caddy/certs/` (gitignored)
 - Resource limits (`deploy.resources.limits.memory`) are set on every service
 - GitLab is the heaviest service (6 GB memory limit, 5-min start period); plan accordingly when starting the stack
 

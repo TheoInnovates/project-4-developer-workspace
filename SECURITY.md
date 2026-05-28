@@ -15,8 +15,8 @@ You should receive a response within 48 hours.
 This project is designed as a **local development workspace**. Keep the following in mind:
 
 - **Credentials** are stored in `.env` (gitignored) &mdash; never commit secrets
-- **TLS certificates** in `traefik/certs/` are gitignored
-- **Docker socket** is mounted read-only where possible, but services with socket access (Traefik, Portainer, Watchtower, Promtail) have elevated privileges
+- **TLS certificates** in `caddy/certs/` are gitignored
+- **Docker socket** is mounted read-only where possible, but services with socket access (Caddy, Portainer, Watchtower, Promtail) have elevated privileges
 - **Vault** should be initialized and unsealed manually; never store unseal keys in version control
 - **Cloud deployments** use Tailscale for zero-trust networking with no public ingress ports
 

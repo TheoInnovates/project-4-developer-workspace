@@ -1,6 +1,6 @@
 # Docker Compose Developer Workspace
 
-A self-hosted development infrastructure stack with 14 services, managed by Docker Compose and fronted by Traefik with automatic TLS. Deployable locally, on OCI cloud (via OpenTofu + Tailscale), or on AWS.
+A self-hosted development infrastructure stack with 14 services, managed by Docker Compose and fronted by Caddy with automatic TLS. Deployable locally, on OCI cloud (via OpenTofu + Tailscale), or on AWS.
 
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-v2-2496ED?logo=docker)
 ![OpenTofu](https://img.shields.io/badge/OpenTofu-IaC-844FBA?logo=opentofu)
@@ -9,7 +9,7 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
 ## Features
 
 - **14 integrated services** across dev, monitoring, storage, security, and infrastructure layers
-- **Traefik v3 reverse proxy** with automatic HTTPS and `*.local` domain routing
+- **Caddy reverse proxy** (label-driven via `caddy-docker-proxy`) with automatic HTTPS and `*.local` domain routing
 - **Three TLS profiles** &mdash; local (mkcert), cloud (self-signed), AWS (ACM certificates)
 - **Service profiles** &mdash; enable/disable service groups via `stack.env`
 - **Full monitoring stack** &mdash; Prometheus + Grafana + Loki/Promtail with pre-built alerts and dashboards
@@ -24,7 +24,7 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
                         *.local  -->  127.0.0.1 (hosts file)
                                  |
                     +------------+------------+
-                    |     Traefik (TLS)       |
+                    |      Caddy (TLS)        |
                     |   :80 (redirect) :443   |
                     +------------+------------+
                                  |
@@ -46,7 +46,7 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
                                                        |
   +----------------------------------------------------+
   |   Infrastructure (always on)                       |
-  |  Traefik  |  Homepage  |  Watchtower  |  Portainer |
+  |  Caddy    |  Homepage  |  Watchtower  |  Portainer |
   +----------------------------------------------------+
 ```
 
@@ -100,7 +100,7 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 | `security` | HashiCorp Vault | Enabled |
 | `infra` | Portainer | Enabled |
 
-**Always on** (no profile required): Traefik, Homepage, Watchtower
+**Always on** (no profile required): Caddy, Homepage, Watchtower
 
 ## TLS Profiles
 
@@ -151,9 +151,8 @@ See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and 
 ├── stack.env                   # Profile and TLS mode selection
 ├── .env                        # Hostnames and credentials (gitignored)
 ├── Makefile                    # Common operations
-├── traefik/
-│   ├── traefik.yml             # Static config (entrypoints, providers)
-│   ├── dynamic/tls.yml         # TLS certificate references
+├── caddy/
+│   ├── Caddyfile               # Base config (global options + tls_certs snippet)
 │   └── certs/                  # TLS certificates (gitignored)
 ├── prometheus/
 │   ├── prometheus.yml          # Scrape targets

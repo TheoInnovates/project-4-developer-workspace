@@ -4,8 +4,8 @@
 #     --env-file .env.spark-d5dd up -d
 
 services:
-  # Traefik on Tailscale-only network — bind to localhost
-  traefik:
+  # Caddy on Tailscale-only network — bind to localhost
+  caddy:
     ports:
       - "127.0.0.1:80:80"
       - "127.0.0.1:443:443"

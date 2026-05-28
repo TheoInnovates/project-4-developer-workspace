@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Import ACM-exported certificates into traefik/certs/ on the cloud instance.
+# Import ACM-exported certificates into caddy/certs/ on the cloud instance.
 # Usage: bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem [-C chain.pem] [-p passphrase]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CERTS_DIR="$SCRIPT_DIR/../traefik/certs"
+CERTS_DIR="$SCRIPT_DIR/../caddy/certs"
 
 usage() {
   echo "Usage: $0 -c <cert-file> -k <key-file> [-C <chain-file>] [-p <passphrase>]"

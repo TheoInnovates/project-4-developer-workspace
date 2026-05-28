@@ -1,0 +1,16 @@
+# Base Caddyfile merged with the per-service config that caddy-docker-proxy
+# generates from `caddy.*` Docker labels. Holds global options and the shared
+# (tls_certs) snippet that every site imports.
+{
+	# Expose the admin/metrics API on all interfaces so Prometheus can scrape
+	# http://caddy:2019/metrics over the devstack network.
+	admin :2019
+	metrics
+}
+
+# Serve the pre-provisioned certificate (mkcert / self-signed / exported ACM,
+# standardized as cert.pem + key.pem). Supplying explicit certs disables ACME
+# for these sites, so no public reachability is required.
+(tls_certs) {
+	tls /certs/cert.pem /certs/key.pem
+}

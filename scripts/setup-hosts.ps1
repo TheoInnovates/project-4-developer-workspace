@@ -14,7 +14,6 @@ $domains = @(
     "nexus.local",
     "prometheus.local",
     "grafana.local",
-    "traefik.local",
     "portainer.local",
     "registry.local",
     "minio.local",

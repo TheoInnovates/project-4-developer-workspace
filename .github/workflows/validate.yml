@@ -36,8 +36,6 @@ jobs:
           yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}}}' \
             prometheus/prometheus.yml \
             prometheus/alerts/alerts.yml \
-            traefik/traefik.yml \
-            traefik/dynamic/tls.yml \
             grafana/provisioning/datasources/prometheus.yml \
             grafana/provisioning/dashboards/dashboards.yml \
             promtail/promtail.yml

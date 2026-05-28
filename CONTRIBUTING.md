@@ -22,7 +22,7 @@ Contributions are welcome! Here's how to get started.
 ## Guidelines
 
 - **Test locally** before submitting &mdash; run `make validate` at minimum
-- **Keep compose labels consistent** &mdash; every service exposed via Traefik needs the standard label set (router, entrypoints, TLS, service port, homepage labels)
+- **Keep compose labels consistent** &mdash; every service exposed via Caddy needs the standard label set (`caddy` host, `caddy.reverse_proxy` upstream, `caddy.import tls_certs`, plus homepage labels)
 - **Set resource limits** &mdash; every new service must have `deploy.resources.limits.memory`
 - **Add healthchecks** &mdash; every new service should include a healthcheck
 - **Update documentation** &mdash; if you add a service, update `CLAUDE.md`, `README.md`, and `prometheus/prometheus.yml` (add a scrape target)
@@ -30,7 +30,7 @@ Contributions are welcome! Here's how to get started.
 
 ## Adding a New Service
 
-1. Add the service definition to `docker-compose.yml` with Traefik labels, healthcheck, resource limits, and a profile
+1. Add the service definition to `docker-compose.yml` with Caddy labels, healthcheck, resource limits, and a profile
 2. Add the hostname variable to `.env.example`
 3. Add the DNS entry to `scripts/setup-hosts.ps1`
 4. Add a Prometheus scrape target to `prometheus/prometheus.yml` (if the service exposes metrics)

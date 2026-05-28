@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Imports ACM-exported certificates into the Traefik certs directory.
+    Imports ACM-exported certificates into the Caddy certs directory.
 .DESCRIPTION
     Decrypts the ACM-encrypted private key and places cert + key as cert.pem / key.pem
-    in traefik/certs/ for Traefik to load.
+    in caddy/certs/ for Caddy to load.
 .PARAMETER CertFile
     Path to the certificate file (PEM format).
 .PARAMETER KeyFile
@@ -27,7 +27,7 @@ param(
     [string]$Passphrase
 )
 
-$certsDir = Join-Path $PSScriptRoot "..\traefik\certs"
+$certsDir = Join-Path $PSScriptRoot "..\caddy\certs"
 
 # Check openssl is available
 if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {

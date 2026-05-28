@@ -14,7 +14,6 @@ $domains = @(
     "nexus.devstack",
     "prometheus.devstack",
     "grafana.devstack",
-    "traefik.devstack",
     "portainer.devstack",
     "registry.devstack",
     "minio.devstack",

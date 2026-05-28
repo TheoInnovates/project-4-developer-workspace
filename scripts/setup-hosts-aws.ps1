@@ -16,7 +16,7 @@ param(
 )
 
 $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
-$services = @("home", "gitlab", "nexus", "prometheus", "grafana", "traefik", "portainer", "registry", "minio", "s3", "vault")
+$services = @("home", "gitlab", "nexus", "prometheus", "grafana", "portainer", "registry", "minio", "s3", "vault")
 $domains = $services | ForEach-Object { "$_.$Domain" }
 
 $hostsContent = Get-Content $hostsPath -Raw
