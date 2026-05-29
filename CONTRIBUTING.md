@@ -32,7 +32,7 @@ Contributions are welcome! Here's how to get started.
 
 1. Add the service definition to `docker-compose.yml` with Caddy labels, healthcheck, resource limits, and a profile
 2. Add the hostname variable to `.env.example`
-3. Add the DNS entry to `scripts/setup-hosts.ps1`
+3. Add a DNS record for the hostname (Route53 for a real domain, or `/etc/hosts` for local)
 4. Add a Prometheus scrape target to `prometheus/prometheus.yml` (if the service exposes metrics)
 5. Run `make validate` to verify
 

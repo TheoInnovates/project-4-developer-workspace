@@ -59,7 +59,7 @@ The workspace runs 14 services organized into five functional layers, all behind
 
 ## Network Flow
 
-1. **DNS Resolution:** `*.local` domains resolve to `127.0.0.1` via the Windows hosts file (managed by `scripts/setup-hosts.ps1`)
+1. **DNS Resolution:** service hostnames resolve to the host — `127.0.0.1` for `*.local` (via `/etc/hosts`), or a public Route53 record pointing at the host's Tailscale IP for a real domain (e.g. `*.devhub.ninja`)
 2. **TLS Termination:** Caddy receives all traffic on `:443`, terminates TLS using certificates from `caddy/certs/`, and routes based on the host + upstream defined as `caddy.*` Docker labels on each service
 3. **HTTP Redirect:** Port `:80` automatically redirects to `:443`
 4. **Internal Communication:** Services communicate by container name on the `devstack` bridge network (e.g., Prometheus scrapes `grafana:3000`)

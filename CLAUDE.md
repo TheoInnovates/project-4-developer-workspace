@@ -8,25 +8,25 @@ This is a **Docker Compose-based local developer workspace** running on Windows 
 
 ## Commands
 
-All scripts are PowerShell (`.ps1`) in `scripts/`.
+Scripts are bash (`.sh`) in `scripts/`. This is a Linux-only deployment.
 
-```powershell
-# First-time setup (run as Administrator)
-powershell -File scripts/setup-hosts.ps1    # Add *.local entries to Windows hosts file
-powershell -File scripts/generate-certs.ps1 # Generate TLS certs via mkcert
+```bash
+# Deploy a target (loads its env file, overlay, and COMPOSE_PROFILES)
+bash scripts/deploy.sh spark-d5dd     # full dev stack + Nemotron (runs locally)
+bash scripts/deploy.sh spark-06ad     # Coder vLLM only (over SSH)
 
-# Start / stop the stack
-docker compose up -d
+# Or drive a single host directly
+docker compose up -d        # (make up / make down / make restart)
 docker compose down
 
-# Or use the wrapper scripts
-powershell -File scripts/start.ps1
-powershell -File scripts/stop.ps1
+# First-run GitLab init: developers group + theo user + runner registration
+bash scripts/gitlab-setup.sh
 
-# View logs for a specific service
+# Import an exported ACM cert into caddy/certs/
+bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem -C chain.pem -p <passphrase>
+
+# Logs / restart for a specific service
 docker compose logs -f <service-name>
-
-# Restart a single service
 docker compose restart <service-name>
 ```
 
@@ -71,7 +71,7 @@ Services are grouped into Docker Compose profiles, controlled by the git-tracked
 
 **Always on** (no profile): caddy, homepage, watchtower
 
-To disable a group, remove it from `COMPOSE_PROFILES` in `stack.env` and redeploy. The wrapper scripts (`start.ps1`, `stop.ps1`, `deploy.sh`) automatically load `stack.env`.
+To disable a group, remove it from `COMPOSE_PROFILES` in `stack.env` and redeploy. `scripts/deploy.sh` injects the right `COMPOSE_PROFILES` and env file per target.
 
 ## TLS Profiles
 
@@ -79,26 +79,25 @@ The stack supports three TLS/domain modes, controlled by `TLS_PROFILE` in `stack
 
 | Profile | Env File | Domains | Cert Source |
 |---------|----------|---------|-------------|
-| `local` | `.env` | `*.local` | mkcert (`scripts/generate-certs.ps1`) |
+| `local` | `.env` | `*.local` | mkcert (run `mkcert` into `caddy/certs/`) |
 | `cloud` | `.env.cloud` | `*.devstack` | Self-signed via cloud-init OpenSSL |
-| `aws` | `.env.aws` | `*.example.com` | ACM-exported certs (`scripts/import-acm-certs.ps1`) |
+| `aws` | `.env.aws` (or per-host, e.g. `.env.spark-d5dd`) | your domain (e.g. `*.devhub.ninja`) | ACM-exported certs (`scripts/import-acm-certs.sh`) |
 
 All modes use standardized filenames `cert.pem` / `key.pem` in `caddy/certs/`.
 
-**Quick start with AWS domain:**
-```powershell
-# 1. Import ACM certs (decrypts the passphrase-encrypted private key)
-powershell -File scripts/import-acm-certs.ps1 -CertFile cert.pem -KeyFile key.enc.pem -ChainFile chain.pem -Passphrase "your-passphrase"
+**Quick start with an AWS/Route53 domain:**
+```bash
+# 1. Import the exported ACM cert (decrypts the passphrase-encrypted key) into caddy/certs/
+bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem -C chain.pem -p "your-passphrase"
 
-# 2. Create env file from template
-cp .env.aws.example .env.aws   # Edit domain and passwords
+# 2. Create env file from template, set the *.<domain> hostnames + TAILSCALE_IP
+cp .env.aws.example .env.aws   # or edit .env.spark-d5dd for a Spark host
 
-# 3. Add DNS entries to hosts file (run as Admin)
-powershell -File scripts/setup-hosts-aws.ps1 -Domain example.com
+# 3. Add a public Route53 record: *.<domain> -> the host's Tailscale IP (100.x.y.z)
+#    (resolves publicly but is only reachable on the tailnet)
 
-# 4. Set profile and start
-# Edit stack.env: TLS_PROFILE=aws
-powershell -File scripts/start.ps1
+# 4. Deploy
+bash scripts/deploy.sh spark-d5dd      # or: TLS_PROFILE=aws + make up
 ```
 
 ## Conventions
@@ -131,18 +130,16 @@ cd /opt/devstack
 cp .env.cloud .env.cloud  # Edit passwords first
 docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d
 
-# Deploy updates from Windows
-bash scripts/deploy.sh
+# Deploy updates
+bash scripts/deploy.sh devstack
 
-# Add *.devstack DNS entries to Windows hosts file (run as Admin)
-powershell -File scripts/setup-hosts-cloud.ps1 -TailscaleIP 100.x.y.z
+# Resolve *.devstack on clients via Tailscale MagicDNS, or /etc/hosts -> 100.x.y.z
 ```
 
 **Key cloud files:**
 - `infra/` — OpenTofu configs (OCI provider, networking module, compute module, cloud-init)
 - `docker-compose.cloud.yml` — Override file (localhost-only ports, cloud hostnames)
 - `.env.cloud` — Cloud hostnames with `.devstack` suffix (gitignored)
-- `scripts/deploy.sh` — Tailscale SSH deploy helper
-- `scripts/setup-hosts-cloud.ps1` — Adds `*.devstack` entries to Windows hosts file
+- `scripts/deploy.sh` — per-target deploy helper (local or Tailscale SSH)
 
-**DNS:** Services use `*.devstack` hostnames (e.g., `home.devstack`, `gitlab.devstack`). These resolve via Windows hosts file entries pointing to the Tailscale IP (`100.x.y.z`). No domain purchase needed.
+**DNS:** Services use `*.devstack` hostnames (e.g., `home.devstack`, `gitlab.devstack`). These resolve via Tailscale MagicDNS or `/etc/hosts` entries pointing to the Tailscale IP (`100.x.y.z`). No domain purchase needed.

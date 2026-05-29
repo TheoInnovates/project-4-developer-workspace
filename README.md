@@ -56,9 +56,9 @@ See [docs/architecture.md](docs/architecture.md) for detailed network topology a
 
 ### Prerequisites
 
-- [Docker Desktop](https://docs.docker.com/desktop/) (with Compose v2)
-- [mkcert](https://github.com/FiloSottile/mkcert) (for local TLS certificates)
-- PowerShell 5.1+ (Windows) or bash (Linux/macOS)
+- Docker Engine with Compose v2 (Linux)
+- bash; Tailscale on the hosts/clients for private access
+- A TLS cert for your domain — an exported ACM wildcard, or `mkcert` for `*.local`
 
 ### Setup
 
@@ -70,17 +70,19 @@ cd developer-workspace
 # 2. Copy and edit the environment file
 cp .env.example .env   # Edit passwords and hostnames
 
-# 3. Generate TLS certificates (requires mkcert)
-make certs
+# 3. Provide TLS certs in caddy/certs/ as cert.pem + key.pem
+#    e.g. import an exported ACM wildcard cert:
+#    bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem -C chain.pem -p <passphrase>
 
-# 4. Add *.local entries to your hosts file (run as Administrator)
-make hosts
+# 4. Point DNS at the host (public Route53 record for a real domain,
+#    or /etc/hosts entries for *.local) — for Tailscale, use the node's 100.x IP
 
 # 5. Choose which service groups to enable
 #    Edit stack.env to set COMPOSE_PROFILES
 
-# 6. Start the stack
+# 6. Start the stack (single host) or deploy a Spark target
 make up
+#    or: bash scripts/deploy.sh spark-d5dd
 
 # 7. Open the dashboard
 #    https://home.local
@@ -108,7 +110,7 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 |---------|---------|-------------------|-------|
 | `local` | `*.local` | mkcert (trusted locally) | `make certs` |
 | `cloud` | `*.devstack` | Self-signed via cloud-init | Automatic |
-| `aws` | `*.example.com` | ACM-exported certificates | `scripts/import-acm-certs.ps1` |
+| `aws` | your domain (e.g. `*.devhub.ninja`) | ACM-exported certificates | `scripts/import-acm-certs.sh` |
 
 Set `TLS_PROFILE` in `stack.env` to switch between profiles.
 
@@ -136,9 +138,8 @@ See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and 
 | `make validate` | Validate compose config |
 | `make pull` | Pull latest images |
 | `make top` | Show resource usage |
-| `make certs` | Generate TLS certificates |
-| `make hosts` | Update Windows hosts file |
-| `make register-runner` | Register GitLab Runner |
+| `make certs` | Print the ACM cert-import command |
+| `make register-runner` | Register GitLab Runner (manual; or `make gitlab-setup`) |
 | `make vault-init` | Initialize Vault |
 | `make clean` | Remove all data (destructive) |
 
