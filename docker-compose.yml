@@ -682,9 +682,11 @@ services:
       WEBUI_NAME: ${WEBUI_NAME:-Devstack}
       WEBUI_URL: "https://${OPENWEBUI_HOST}"
       ENABLE_API_KEYS: "true"
-      # Inject whole uploaded documents into context instead of RAG snippet
-      # retrieval (Nemotron has 256k context; per-file toggle still available)
-      RAG_FULL_CONTEXT: "true"
+      # Documents default to fast focused retrieval (RAG snippets); opt into
+      # the full-document deep read per file in the chat UI (click the file ->
+      # "Using Entire Document"). Don't set RAG_FULL_CONTEXT=true globally:
+      # the backend ORs it with the per-file choice, making the toggle a no-op.
+      RAG_FULL_CONTEXT: "false"
       # Background tasks (chat titles, tags, follow-ups) go to the coder on
       # spark-06ad: fast, prefix-cached, and never competes with Nemotron
       TASK_MODEL: "Qwen/Qwen3-Coder-Next-FP8"

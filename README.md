@@ -128,6 +128,14 @@ real switch). To get deep-reasoning mode back for a session:
 
 Flip it back the same way when done.
 
+**Document Q&A in OpenWebUI:** uploads default to fast *focused retrieval*
+(RAG snippets, ~5-10s answers). For the high-accuracy deep read of a whole
+document, click the attached file in the chat and switch it to **"Using
+Entire Document"** — expect ~1s per ~1000 tokens of document per question
+(Nemotron can't cache the read between turns). Don't enable the global
+`RAG_FULL_CONTEXT` instead: it overrides the per-file toggle entirely.
+Background tasks (titles/tags) are served by the coder model on spark-06ad.
+
 ## TLS Profiles
 
 | Profile | Domains | Certificate Source | Setup |
