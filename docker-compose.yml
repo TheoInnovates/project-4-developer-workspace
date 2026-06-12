@@ -348,7 +348,9 @@ services:
       loki:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9080/ready || exit 1"]
+      # The promtail image has no wget/curl, but it does ship bash: probe /ready
+      # over bash's /dev/tcp instead.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9080 && printf \"GET /ready HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
       interval: 30s
       timeout: 5s
       retries: 3
