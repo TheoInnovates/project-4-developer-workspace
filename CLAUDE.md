@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a **Docker Compose-based local developer workspace** running on Windows 11. It provisions a full self-hosted development infrastructure stack behind a Caddy reverse proxy with local TLS (`*.local` domains). All services share a single Docker bridge network called `devstack`.
+This is a **Docker Compose-based developer workspace** running on Linux. It provisions a full self-hosted development infrastructure stack behind a Caddy reverse proxy with TLS. The primary deployment is two Spark hosts reachable at `*.devhub.ninja` over Tailscale (spark-d5dd runs the dev stack + Nemotron vLLM; spark-06ad runs the Coder vLLM only); a `*.local` mkcert mode exists for single-host local development. All services share a single Docker bridge network called `devstack`.
 
 ## Commands
 
@@ -32,19 +32,21 @@ docker compose restart <service-name>
 
 ## Architecture
 
-**Reverse Proxy:** Caddy (via the `caddy-docker-proxy` image) terminates TLS for all services. A small base `caddy/Caddyfile` holds global options (admin/metrics API on `:2019`) and a reusable `(tls_certs)` snippet; per-service routing is generated dynamically from `caddy.*` Docker labels on each service (`caddy: <host>`, `caddy.reverse_proxy: {{upstreams <port>}}`, `caddy.import: tls_certs`). HTTP auto-redirects to HTTPS.
+**Reverse Proxy:** Caddy (via the `caddy-docker-proxy` image) terminates TLS for all services. A small base `caddy/Caddyfile` holds global options, a plain `:2020` site exposing Prometheus metrics, and a reusable `(tls_certs)` snippet; per-service routing is generated dynamically from `caddy.*` Docker labels on each service (`caddy: <host>`, `caddy.reverse_proxy: {{upstreams <port>}}`, `caddy.import: tls_certs`). HTTP auto-redirects to HTTPS.
 
 **Services by function:**
 
 | Layer | Services |
 |---|---|
 | Development | GitLab CE (source control, CI/CD), GitLab Runner, Nexus (artifact repo), Docker Registry |
-| Monitoring | Prometheus, Grafana, Loki + Promtail (logs) |
+| Monitoring | Prometheus, Alertmanager (routes alerts, see `prometheus/alertmanager.yml`), Grafana, Loki + Promtail (logs), Uptime Kuma (status) |
 | Storage | MinIO (S3-compatible object storage) |
 | Security | HashiCorp Vault (secret management) |
+| AI | vLLM Nemotron (spark-d5dd GPU), vLLM Coder (spark-06ad GPU), OpenWebUI (chat), SearXNG (RAG search) |
+| Tools | code-server (VS Code in the browser) |
 | Infrastructure | Caddy, Portainer (container UI), Watchtower (auto-updates at 4 AM), Homepage (dashboard) |
 
-**Networking:** All services resolve each other by container name on the `devstack` network. External access is through `*.local` domains mapped to `127.0.0.1` in the hosts file.
+**Networking:** All services resolve each other by container name on the `devstack` network. External access is through `*.devhub.ninja` domains (public Route53 records pointing at the host's Tailscale IP — resolvable publicly, reachable only on the tailnet), or `*.local` mapped to `127.0.0.1` in the hosts file for local mode.
 
 **Configuration pattern:** Each service with external config has a dedicated directory at the repo root (e.g., `caddy/`, `prometheus/`, `grafana/provisioning/`, `promtail/`, `vault/`, `homepage/config/`). Persistent data lives in `volumes/` (gitignored).
 
@@ -52,7 +54,7 @@ docker compose restart <service-name>
 
 - `docker-compose.yml` — Single compose file defining all services, healthchecks, resource limits, and Caddy labels
 - `.env` — Hostnames, credentials, and ports (gitignored — contains passwords)
-- `caddy/Caddyfile` — Caddy base config (global options: admin/metrics API on `:2019`; the `(tls_certs)` snippet). Routes themselves come from per-service Docker labels.
+- `caddy/Caddyfile` — Caddy base config (global options, Prometheus metrics site on `:2020`, the `(tls_certs)` snippet). Routes themselves come from per-service Docker labels.
 - `prometheus/prometheus.yml` — Scrape targets for all services
 - `grafana/provisioning/` — Datasource (Prometheus) and dashboard provisioning
 - `homepage/config/` — Dashboard layout; services auto-discovered via Docker labels (`homepage.*`)
@@ -64,10 +66,16 @@ Services are grouped into Docker Compose profiles, controlled by the git-tracked
 | Profile | Services |
 |---|---|
 | `dev` | gitlab, gitlab-runner, nexus, registry |
-| `monitoring` | prometheus, grafana, loki, promtail |
+| `monitoring` | prometheus, alertmanager, grafana, loki, promtail |
 | `storage` | minio |
 | `security` | vault |
 | `infra` | portainer |
+| `nemotron` | vllm-nemotron (GPU, spark-d5dd) |
+| `coder` | vllm-coder (GPU, spark-06ad) |
+| `webui` | openwebui |
+| `search` | searxng |
+| `ide` | code-server |
+| `status` | uptime-kuma |
 
 **Always on** (no profile): caddy, homepage, watchtower
 
@@ -104,9 +112,10 @@ bash scripts/deploy.sh spark-d5dd      # or: TLS_PROFILE=aws + make up
 
 - Services expose themselves to Caddy via Docker labels (`caddy: ${HOST}` + `caddy.reverse_proxy: {{upstreams <port>}}` + `caddy.import: tls_certs`); only running containers get routed
 - Homepage dashboard entries are also defined as Docker labels on each service
-- Hostnames follow the pattern `<service>.local`, configured in `.env` and referenced as `${VAR}` in compose labels
-- TLS certs are generated with `mkcert` and stored in `caddy/certs/` (gitignored)
+- Hostnames follow the pattern `<service>.<domain-suffix>` (e.g. `gitlab.devhub.ninja`), configured in the per-target env file and referenced as `${VAR}` in compose labels
+- TLS certs live in `caddy/certs/` as `cert.pem` + `key.pem` (gitignored) — ACM-exported for `*.devhub.ninja`, or mkcert for local mode
 - Resource limits (`deploy.resources.limits.memory`) are set on every service
+- Stateful/heavy service images are version-pinned; Watchtower only auto-updates services that opt in via the `com.centurylinklabs.watchtower.enable: "true"` label (upgrade pinned services by bumping the tag and redeploying)
 - GitLab is the heaviest service (6 GB memory limit, 5-min start period); plan accordingly when starting the stack
 
 ## Cloud Deployment (OCI + Tailscale)

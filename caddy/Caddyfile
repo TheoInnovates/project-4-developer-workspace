@@ -2,9 +2,15 @@
 # generates from `caddy.*` Docker labels. Holds global options and the shared
 # (tls_certs) snippet that every site imports.
 {
-	# Expose the admin/metrics API on all interfaces so Prometheus can scrape
-	# http://caddy:2019/metrics over the devstack network.
-	admin :2019
+	# caddy-docker-proxy forces the admin API onto localhost:2019 (it needs
+	# exclusive control of it), so `admin :2019` here would be ignored. The
+	# global metrics option enables collection; the :2020 site below exposes
+	# them to Prometheus over the devstack network.
+	metrics
+}
+
+# Prometheus scrape endpoint: http://caddy:2020/metrics
+:2020 {
 	metrics
 }
 

@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs certs clean
+.PHONY: up down restart status logs certs clean backup
 
 # Start all services
 up:
@@ -24,6 +24,10 @@ logs:
 # Follow logs for a specific service: make log s=gitlab
 log:
 	docker compose logs -f $(s)
+
+# Back up GitLab + stateful volumes (see scripts/backup.sh for flags)
+backup:
+	bash scripts/backup.sh
 
 # Import exported ACM certs into caddy/certs/
 certs:

@@ -19,9 +19,12 @@ GITLAB_HOST="$(getenv GITLAB_HOST)"
 TAILSCALE_IP="$(getenv TAILSCALE_IP)"
 GITLAB_URL="https://${GITLAB_HOST}"
 
-DEV_USER="theo"
-DEV_PASS="Th3o_Dev!2026"
-DEV_EMAIL="theo@local.dev"
+# Dev user credentials come from the env file (GITLAB_DEV_*); username/email
+# have defaults, the password deliberately has none so it never lives in git.
+DEV_USER="$(getenv GITLAB_DEV_USER)";  DEV_USER="${DEV_USER:-theo}"
+DEV_EMAIL="$(getenv GITLAB_DEV_EMAIL)"; DEV_EMAIL="${DEV_EMAIL:-theo@local.dev}"
+DEV_PASS="$(getenv GITLAB_DEV_PASSWORD)"
+[[ -n "$DEV_PASS" ]] || { echo "ERROR: set GITLAB_DEV_PASSWORD in $ENV_FILE" >&2; exit 1; }
 
 # Hit Caddy with correct SNI (valid cert) via the Tailscale IP, independent of
 # external DNS resolution.
@@ -56,7 +59,7 @@ DEV_ID="$(api "$GITLAB_URL/api/v4/users?username=$DEV_USER" \
 if [[ -z "$DEV_ID" ]]; then
   DEV_ID="$(api -X POST "$GITLAB_URL/api/v4/users" \
     --data-urlencode "email=$DEV_EMAIL" --data-urlencode "username=$DEV_USER" \
-    --data-urlencode "name=Theo" --data-urlencode "password=$DEV_PASS" \
+    --data-urlencode "name=$DEV_USER" --data-urlencode "password=$DEV_PASS" \
     --data-urlencode skip_confirmation=true | field id)"
   echo "    created (id=$DEV_ID)."
 else

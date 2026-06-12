@@ -8,21 +8,47 @@ on:
 
 jobs:
   compose-lint:
-    name: Lint Docker Compose
+    name: Lint Docker Compose (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Mirrors the target -> env/overlay/profiles mapping in scripts/deploy.sh
+          - target: spark-d5dd
+            env_example: .env.spark-d5dd.example
+            overlay: docker-compose.spark-d5dd.yml
+            profiles: dev,monitoring,storage,security,infra,nemotron,webui,search,ide,status
+          - target: spark-06ad
+            env_example: .env.spark-06ad.example
+            overlay: docker-compose.spark-06ad.yml
+            profiles: coder
+          - target: devstack
+            env_example: .env.cloud.example
+            overlay: docker-compose.cloud.yml
+            profiles: dev,monitoring,storage,security,infra
     steps:
       - uses: actions/checkout@v4
-      - name: Create dummy .env for validation
+      - name: Build env file from example + placeholders for missing vars
         run: |
-          grep -oP '\$\{(\w+)\}' docker-compose.yml | sort -u | sed 's/\${//;s/}//' | \
-            while read var; do
+          grep -hoP '\$\{(\w+)\}' docker-compose.yml "${{ matrix.overlay }}" \
+            | sort -u | sed 's/\${//;s/}//' > .env.vars
+          while read -r var; do
+            if ! grep -q "^${var}=" "${{ matrix.env_example }}"; then
               case "$var" in
-                *PORT*) echo "${var}=8080" ;;
-                *)      echo "${var}=placeholder" ;;
+                *PORT*)                   echo "${var}=8080" ;;
+                *DIR*|*BASE*|*WORKSPACE*) echo "${var}=/tmp" ;;
+                *)                        echo "${var}=placeholder" ;;
               esac
-            done > .env
-      - name: Validate docker-compose.yml
-        run: docker compose config --quiet
+            fi
+          done < .env.vars > .env.extra
+          cat "${{ matrix.env_example }}" .env.extra > .env.ci
+      - name: Validate compose config
+        env:
+          COMPOSE_PROFILES: ${{ matrix.profiles }}
+        run: |
+          docker compose -f docker-compose.yml -f "${{ matrix.overlay }}" \
+            --env-file .env.ci config --quiet
 
   yaml-lint:
     name: Lint YAML configs
@@ -35,7 +61,9 @@ jobs:
         run: |
           yamllint -d '{extends: relaxed, rules: {line-length: {max: 200}}}' \
             prometheus/prometheus.yml \
+            prometheus/alertmanager.yml \
             prometheus/alerts/alerts.yml \
+            loki/config.yml \
             grafana/provisioning/datasources/prometheus.yml \
             grafana/provisioning/dashboards/dashboards.yml \
             promtail/promtail.yml
@@ -47,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run ShellCheck
         run: |
-          find scripts -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning || true
+          find scripts -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
 
   tofu-validate:
     name: Validate OpenTofu
@@ -75,4 +103,4 @@ jobs:
           scan-type: config
           scan-ref: .
           severity: HIGH,CRITICAL
-          exit-code: 0
+          exit-code: 1

@@ -1,6 +1,6 @@
 # Docker Compose Developer Workspace
 
-A self-hosted development infrastructure stack with 14 services, managed by Docker Compose and fronted by Caddy with automatic TLS. Deployable locally, on OCI cloud (via OpenTofu + Tailscale), or on AWS.
+A self-hosted development infrastructure stack with 20 services, managed by Docker Compose and fronted by Caddy with TLS. Deployed on Linux hosts over Tailscale (e.g. `*.devhub.ninja`), locally with mkcert, or on an OCI Always Free instance (via OpenTofu + Tailscale).
 
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-v2-2496ED?logo=docker)
 ![OpenTofu](https://img.shields.io/badge/OpenTofu-IaC-844FBA?logo=opentofu)
@@ -8,8 +8,8 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
 
 ## Features
 
-- **14 integrated services** across dev, monitoring, storage, security, and infrastructure layers
-- **Caddy reverse proxy** (label-driven via `caddy-docker-proxy`) with automatic HTTPS and `*.local` domain routing
+- **20 integrated services** across dev, monitoring, storage, security, AI, and infrastructure layers
+- **Caddy reverse proxy** (label-driven via `caddy-docker-proxy`) with HTTPS routing for your domain (`*.devhub.ninja`, `*.local`, ...)
 - **Three TLS profiles** &mdash; local (mkcert), cloud (self-signed), AWS (ACM certificates)
 - **Service profiles** &mdash; enable/disable service groups via `stack.env`
 - **Full monitoring stack** &mdash; Prometheus + Grafana + Loki/Promtail with pre-built alerts and dashboards
@@ -20,8 +20,9 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
 ## Architecture
 
 ```
-                        Host Machine (Windows / Linux)
-                        *.local  -->  127.0.0.1 (hosts file)
+                          Linux Host (Tailscale)
+                 *.devhub.ninja --> Tailscale IP (Route53)
+                     or *.local --> 127.0.0.1 (hosts file)
                                  |
                     +------------+------------+
                     |      Caddy (TLS)        |
@@ -50,7 +51,7 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
   +----------------------------------------------------+
 ```
 
-See [docs/architecture.md](docs/architecture.md) for detailed network topology and data flow.
+See [docs/architecture.md](docs/architecture.md) for detailed network topology and data flow, and [docs/vault.md](docs/vault.md) for Vault init/unseal/backup procedures.
 
 ## Quick Start
 
@@ -85,7 +86,7 @@ make up
 #    or: bash scripts/deploy.sh spark-d5dd
 
 # 7. Open the dashboard
-#    https://home.local
+#    https://home.<your-domain>   (e.g. https://home.devhub.ninja, or https://home.local)
 ```
 
 > **Note:** GitLab requires ~6 GB RAM and takes up to 5 minutes to start. Monitor with `make log s=gitlab`.
@@ -97,10 +98,16 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 | Profile | Services | Default |
 |---------|----------|---------|
 | `dev` | GitLab CE, GitLab Runner, Nexus, Docker Registry | Enabled |
-| `monitoring` | Prometheus, Grafana, Loki, Promtail | Enabled |
+| `monitoring` | Prometheus, Alertmanager, Grafana, Loki, Promtail | Enabled |
 | `storage` | MinIO (S3-compatible) | Enabled |
 | `security` | HashiCorp Vault | Enabled |
 | `infra` | Portainer | Enabled |
+| `nemotron` | vLLM Nemotron Super 49B (GPU) | Enabled |
+| `coder` | vLLM Qwen3-Coder (GPU, spark-06ad) | Disabled |
+| `webui` | OpenWebUI | Enabled |
+| `search` | SearXNG | Enabled |
+| `ide` | code-server | Enabled |
+| `status` | Uptime Kuma | Enabled |
 
 **Always on** (no profile required): Caddy, Homepage, Watchtower
 
@@ -138,6 +145,7 @@ See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and 
 | `make validate` | Validate compose config |
 | `make pull` | Pull latest images |
 | `make top` | Show resource usage |
+| `make backup` | Back up GitLab + stateful volumes (cron-friendly: `scripts/backup.sh -d <dir> -k <keep>`) |
 | `make certs` | Print the ACM cert-import command |
 | `make register-runner` | Register GitLab Runner (manual; or `make gitlab-setup`) |
 | `make vault-init` | Initialize Vault |
@@ -157,7 +165,9 @@ See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and 
 │   └── certs/                  # TLS certificates (gitignored)
 ├── prometheus/
 │   ├── prometheus.yml          # Scrape targets
+│   ├── alertmanager.yml        # Alert routing (ntfy/email/Slack receivers)
 │   └── alerts/alerts.yml       # Alert rules
+├── loki/config.yml             # Log storage + 30d retention
 ├── grafana/provisioning/
 │   ├── datasources/            # Prometheus + Loki datasources
 │   └── dashboards/             # Dashboard provisioning + JSON
