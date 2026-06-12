@@ -682,6 +682,9 @@ services:
       WEBUI_NAME: ${WEBUI_NAME:-Devstack}
       WEBUI_URL: "https://${OPENWEBUI_HOST}"
       ENABLE_API_KEYS: "true"
+      # Inject whole uploaded documents into context instead of RAG snippet
+      # retrieval (Nemotron has 256k context; per-file toggle still available)
+      RAG_FULL_CONTEXT: "true"
       OPENAI_API_BASE_URLS: ${OPENWEBUI_API_BASE_URLS}
       OPENAI_API_KEYS: ${OPENWEBUI_API_KEYS}
       ENABLE_RAG_WEB_SEARCH: ${ENABLE_RAG_WEB_SEARCH:-false}
