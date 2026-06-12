@@ -40,9 +40,13 @@ exec vllm serve "${NEMOTRON_SUPER_MODEL}" \
     --async-scheduling \
     --enable-chunked-prefill \
     --trust-remote-code \
-    --reasoning-parser-plugin /workspace/super_v3_reasoning_parser.py \
-    --reasoning-parser super_v3 \
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_coder \
     --default-chat-template-kwargs '{"enable_thinking": false}' \
     --api-key "${VLLM_API_KEY}"
+# The reasoning parser and enable_thinking are a PAIRED setting: with thinking
+# disabled the model never emits </think>, and the parser then misfiles the
+# whole answer as reasoning (empty content). To re-enable deep reasoning,
+# set enable_thinking to true above AND restore these two flags:
+#    --reasoning-parser-plugin /workspace/super_v3_reasoning_parser.py \
+#    --reasoning-parser super_v3 \

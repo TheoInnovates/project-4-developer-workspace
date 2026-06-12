@@ -120,7 +120,9 @@ real switch). To get deep-reasoning mode back for a session:
 
 1. Edit `scripts/vllm/start-nemotron.sh`: change
    `--default-chat-template-kwargs '{"enable_thinking": false}'` to `true`
-   (or delete the flag — the model's default is on)
+   **and** restore the two `--reasoning-parser*` flags commented at the bottom
+   of the script (they're a paired setting — without the parser, thinking
+   leaks into answers; with the parser but no thinking, answers come out empty)
 2. Restart the container: `docker compose up -d --force-recreate vllm-nemotron`
    (model reload takes ~8 minutes)
 
