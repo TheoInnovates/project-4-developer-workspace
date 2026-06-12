@@ -3,9 +3,10 @@
 # Flags follow NVIDIA's Spark deployment guide
 # (NVIDIA-NeMo/Nemotron usage-cookbook/Nemotron-3-Super/SparkDeploymentGuide),
 # adapted for co-tenancy with the dev stack:
-#   - gpu-memory-utilization 0.65 (guide uses 0.90 on a dedicated Spark) so
-#     GitLab & friends keep ~45GB of the 128GB unified memory
-#   - max-model-len 131072 instead of 1M (smaller KV/mamba cache)
+#   - gpu-memory-utilization 0.72 (guide uses 0.90 on a dedicated Spark) so
+#     GitLab & friends keep ~35GB of the 128GB unified memory
+#   - max-model-len 262144 instead of 1M (matches the coder; KV at 0.72
+#     holds ~690k tokens, so several long chats fit concurrently)
 #   - MTP speculative decoding disabled: it needs a per-draft
 #     --speculative_config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
 #     (the MTP head is unquantized, so it can't use the marlin MoE backend),
@@ -24,8 +25,8 @@ exec vllm serve "${NEMOTRON_SUPER_MODEL}" \
     --host 0.0.0.0 \
     --port 8001 \
     --tensor-parallel-size 1 \
-    --gpu-memory-utilization 0.65 \
-    --max-model-len 131072 \
+    --gpu-memory-utilization 0.72 \
+    --max-model-len 262144 \
     --max-num-seqs 4 \
     --kv-cache-dtype fp8 \
     --mamba_ssm_cache_dtype float32 \
