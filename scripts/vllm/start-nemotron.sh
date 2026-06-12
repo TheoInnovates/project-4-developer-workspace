@@ -12,6 +12,11 @@
 #     (the MTP head is unquantized, so it can't use the marlin MoE backend),
 #     and this container's vLLM rejects the moe_backend key. Revisit when the
 #     nvcr vllm image catches up with the guide's cu130-nightly.
+#   - reasoning (thinking) disabled by default via chat-template kwargs: at
+#     ~16 tok/s the hidden thinking phase dominated answer latency. Note the
+#     model ignores "/no_think" text in prompts — enable_thinking is the only
+#     real switch. Re-enable per request with chat_template_kwargs, or flip
+#     the flag here.
 set -e
 
 # Marlin GEMM is required for NVFP4 on the GB10 (other backends raise
@@ -39,4 +44,5 @@ exec vllm serve "${NEMOTRON_SUPER_MODEL}" \
     --reasoning-parser super_v3 \
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_coder \
+    --default-chat-template-kwargs '{"enable_thinking": false}' \
     --api-key "${VLLM_API_KEY}"

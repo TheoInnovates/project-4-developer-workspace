@@ -111,6 +111,21 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 
 **Always on** (no profile required): Caddy, Homepage, Watchtower
 
+## Model Serving Notes
+
+Nemotron 3 Super (spark-d5dd) runs with **reasoning/thinking disabled** for
+fast answers — the hidden thinking phase dominated latency at ~16 tok/s, and
+the model ignores `/no_think`-style prompt text (`enable_thinking` is the only
+real switch). To get deep-reasoning mode back for a session:
+
+1. Edit `scripts/vllm/start-nemotron.sh`: change
+   `--default-chat-template-kwargs '{"enable_thinking": false}'` to `true`
+   (or delete the flag — the model's default is on)
+2. Restart the container: `docker compose up -d --force-recreate vllm-nemotron`
+   (model reload takes ~8 minutes)
+
+Flip it back the same way when done.
+
 ## TLS Profiles
 
 | Profile | Domains | Certificate Source | Setup |
