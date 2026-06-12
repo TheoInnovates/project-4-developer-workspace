@@ -102,7 +102,7 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 | `storage` | MinIO (S3-compatible) | Enabled |
 | `security` | HashiCorp Vault | Enabled |
 | `infra` | Portainer | Enabled |
-| `nemotron` | vLLM Nemotron Super 49B (GPU) | Enabled |
+| `nemotron` | vLLM Nemotron 3 Super 120B (GPU) | Enabled |
 | `coder` | vLLM Qwen3-Coder (GPU, spark-06ad) | Disabled |
 | `webui` | OpenWebUI | Enabled |
 | `search` | SearXNG | Enabled |

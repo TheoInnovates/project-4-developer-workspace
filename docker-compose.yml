@@ -614,6 +614,7 @@ services:
       VLLM_API_KEY: ${VLLM_API_KEY}
     volumes:
       - ./scripts/vllm/start-nemotron.sh:/workspace/start.sh:ro
+      - ./scripts/vllm/super_v3_reasoning_parser.py:/workspace/super_v3_reasoning_parser.py:ro
       - ${HF_CACHE_DIR}:/root/.cache/huggingface
     command: bash /workspace/start.sh
     deploy:
@@ -626,7 +627,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "false"
       homepage.group: Inference
-      homepage.name: Nemotron Super 49B
+      homepage.name: Nemotron 3 Super 120B
       homepage.icon: nvidia
       homepage.href: "http://${VLLM_NEMOTRON_HREF_HOST:-localhost}:${VLLM_NEMOTRON_PORT:-8001}"
       homepage.description: "vLLM serving ${VLLM_NEMOTRON_MODEL:-}"
