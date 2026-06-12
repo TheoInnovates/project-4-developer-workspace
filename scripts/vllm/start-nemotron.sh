@@ -6,9 +6,11 @@
 #   - gpu-memory-utilization 0.65 (guide uses 0.90 on a dedicated Spark) so
 #     GitLab & friends keep ~45GB of the 128GB unified memory
 #   - max-model-len 131072 instead of 1M (smaller KV/mamba cache)
-#   - MTP speculative decoding disabled; it costs extra memory at startup.
-#     To try it, append:
+#   - MTP speculative decoding disabled: it needs a per-draft
 #     --speculative_config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+#     (the MTP head is unquantized, so it can't use the marlin MoE backend),
+#     and this container's vLLM rejects the moe_backend key. Revisit when the
+#     nvcr vllm image catches up with the guide's cu130-nightly.
 set -e
 
 # Marlin GEMM is required for NVFP4 on the GB10 (other backends raise
