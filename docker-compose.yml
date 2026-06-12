@@ -685,6 +685,10 @@ services:
       # Inject whole uploaded documents into context instead of RAG snippet
       # retrieval (Nemotron has 256k context; per-file toggle still available)
       RAG_FULL_CONTEXT: "true"
+      # Background tasks (chat titles, tags, follow-ups) go to the coder on
+      # spark-06ad: fast, prefix-cached, and never competes with Nemotron
+      TASK_MODEL: "Qwen/Qwen3-Coder-Next-FP8"
+      TASK_MODEL_EXTERNAL: "Qwen/Qwen3-Coder-Next-FP8"
       OPENAI_API_BASE_URLS: ${OPENWEBUI_API_BASE_URLS}
       OPENAI_API_KEYS: ${OPENWEBUI_API_KEYS}
       ENABLE_RAG_WEB_SEARCH: ${ENABLE_RAG_WEB_SEARCH:-false}
