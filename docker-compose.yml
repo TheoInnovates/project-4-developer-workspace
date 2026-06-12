@@ -633,7 +633,11 @@ services:
       homepage.description: "vLLM serving ${VLLM_NEMOTRON_MODEL:-}"
 
   vllm-coder:
-    image: nvcr.io/nvidia/vllm:26.03-py3
+    # 26.04, not 26.03: spark-06ad runs driver 580.159.03, which 26.03's CUDA
+    # forward-compat layer rejects ("compatibility mode UNAVAILABLE" -> Triton
+    # "operation not permitted" on the first request). 26.04's compat (595.58)
+    # accepts it. vllm-nemotron stays on 26.03, proven against spark-d5dd's 580.142.
+    image: nvcr.io/nvidia/vllm:26.04-py3
     container_name: vllm-coder
     restart: unless-stopped
     profiles: [coder]

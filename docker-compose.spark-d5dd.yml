@@ -31,7 +31,7 @@ services:
   prometheus:
     extra_hosts:
       - "host.docker.internal:host-gateway"   # reach vllm-nemotron on this host's network namespace
-      - "spark-06ad:192.168.100.10"           # reach vllm-coder over LAN (LAN HEAD_IP from old cortex-worker.yml)
+      - "spark-06ad:192.168.100.11"           # vllm-coder over the direct 200GbE link
     deploy:
       resources:
         limits:
@@ -41,4 +41,4 @@ services:
   openwebui:
     extra_hosts:
       - "host.docker.internal:host-gateway"
-      - "spark-06ad:192.168.100.10"
+      - "spark-06ad:192.168.100.11"
