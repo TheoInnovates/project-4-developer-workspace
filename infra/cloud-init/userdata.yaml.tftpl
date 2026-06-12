@@ -56,8 +56,8 @@ runcmd:
 
   # Generate self-signed wildcard cert for *.devstack
 %{ if tls_mode == "self-signed" ~}
-  - mkdir -p /opt/devstack/traefik/certs
-  - openssl req -x509 -nodes -days 3650 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout /opt/devstack/traefik/certs/key.pem -out /opt/devstack/traefik/certs/cert.pem -subj "/CN=*.devstack" -addext "subjectAltName=DNS:*.devstack,DNS:devstack"
+  - mkdir -p /opt/devstack/caddy/certs
+  - openssl req -x509 -nodes -days 3650 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout /opt/devstack/caddy/certs/key.pem -out /opt/devstack/caddy/certs/cert.pem -subj "/CN=*.devstack" -addext "subjectAltName=DNS:*.devstack,DNS:devstack"
 %{ endif ~}
 
   # Signal completion

@@ -1,6 +1,6 @@
 # Docker Compose Developer Workspace
 
-A self-hosted development infrastructure stack with 14 services, managed by Docker Compose and fronted by Traefik with automatic TLS. Deployable locally, on OCI cloud (via OpenTofu + Tailscale), or on AWS.
+A self-hosted development infrastructure stack with 20 services, managed by Docker Compose and fronted by Caddy with TLS. Deployed on Linux hosts over Tailscale (e.g. `*.devhub.ninja`), locally with mkcert, or on an OCI Always Free instance (via OpenTofu + Tailscale).
 
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-v2-2496ED?logo=docker)
 ![OpenTofu](https://img.shields.io/badge/OpenTofu-IaC-844FBA?logo=opentofu)
@@ -8,8 +8,8 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
 
 ## Features
 
-- **14 integrated services** across dev, monitoring, storage, security, and infrastructure layers
-- **Traefik v3 reverse proxy** with automatic HTTPS and `*.local` domain routing
+- **20 integrated services** across dev, monitoring, storage, security, AI, and infrastructure layers
+- **Caddy reverse proxy** (label-driven via `caddy-docker-proxy`) with HTTPS routing for your domain (`*.devhub.ninja`, `*.local`, ...)
 - **Three TLS profiles** &mdash; local (mkcert), cloud (self-signed), AWS (ACM certificates)
 - **Service profiles** &mdash; enable/disable service groups via `stack.env`
 - **Full monitoring stack** &mdash; Prometheus + Grafana + Loki/Promtail with pre-built alerts and dashboards
@@ -20,11 +20,12 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
 ## Architecture
 
 ```
-                        Host Machine (Windows / Linux)
-                        *.local  -->  127.0.0.1 (hosts file)
+                          Linux Host (Tailscale)
+                 *.devhub.ninja --> Tailscale IP (Route53)
+                     or *.local --> 127.0.0.1 (hosts file)
                                  |
                     +------------+------------+
-                    |     Traefik (TLS)       |
+                    |      Caddy (TLS)        |
                     |   :80 (redirect) :443   |
                     +------------+------------+
                                  |
@@ -46,19 +47,19 @@ A self-hosted development infrastructure stack with 14 services, managed by Dock
                                                        |
   +----------------------------------------------------+
   |   Infrastructure (always on)                       |
-  |  Traefik  |  Homepage  |  Watchtower  |  Portainer |
+  |  Caddy    |  Homepage  |  Watchtower  |  Portainer |
   +----------------------------------------------------+
 ```
 
-See [docs/architecture.md](docs/architecture.md) for detailed network topology and data flow.
+See [docs/architecture.md](docs/architecture.md) for detailed network topology and data flow, and [docs/vault.md](docs/vault.md) for Vault init/unseal/backup procedures.
 
 ## Quick Start
 
 ### Prerequisites
 
-- [Docker Desktop](https://docs.docker.com/desktop/) (with Compose v2)
-- [mkcert](https://github.com/FiloSottile/mkcert) (for local TLS certificates)
-- PowerShell 5.1+ (Windows) or bash (Linux/macOS)
+- Docker Engine with Compose v2 (Linux)
+- bash; Tailscale on the hosts/clients for private access
+- A TLS cert for your domain — an exported ACM wildcard, or `mkcert` for `*.local`
 
 ### Setup
 
@@ -70,20 +71,22 @@ cd developer-workspace
 # 2. Copy and edit the environment file
 cp .env.example .env   # Edit passwords and hostnames
 
-# 3. Generate TLS certificates (requires mkcert)
-make certs
+# 3. Provide TLS certs in caddy/certs/ as cert.pem + key.pem
+#    e.g. import an exported ACM wildcard cert:
+#    bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem -C chain.pem -p <passphrase>
 
-# 4. Add *.local entries to your hosts file (run as Administrator)
-make hosts
+# 4. Point DNS at the host (public Route53 record for a real domain,
+#    or /etc/hosts entries for *.local) — for Tailscale, use the node's 100.x IP
 
 # 5. Choose which service groups to enable
 #    Edit stack.env to set COMPOSE_PROFILES
 
-# 6. Start the stack
+# 6. Start the stack (single host) or deploy a Spark target
 make up
+#    or: bash scripts/deploy.sh spark-d5dd
 
 # 7. Open the dashboard
-#    https://home.local
+#    https://home.<your-domain>   (e.g. https://home.devhub.ninja, or https://home.local)
 ```
 
 > **Note:** GitLab requires ~6 GB RAM and takes up to 5 minutes to start. Monitor with `make log s=gitlab`.
@@ -95,12 +98,18 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 | Profile | Services | Default |
 |---------|----------|---------|
 | `dev` | GitLab CE, GitLab Runner, Nexus, Docker Registry | Enabled |
-| `monitoring` | Prometheus, Grafana, Loki, Promtail | Enabled |
+| `monitoring` | Prometheus, Alertmanager, Grafana, Loki, Promtail | Enabled |
 | `storage` | MinIO (S3-compatible) | Enabled |
 | `security` | HashiCorp Vault | Enabled |
 | `infra` | Portainer | Enabled |
+| `nemotron` | vLLM Nemotron Super 49B (GPU) | Enabled |
+| `coder` | vLLM Qwen3-Coder (GPU, spark-06ad) | Disabled |
+| `webui` | OpenWebUI | Enabled |
+| `search` | SearXNG | Enabled |
+| `ide` | code-server | Enabled |
+| `status` | Uptime Kuma | Enabled |
 
-**Always on** (no profile required): Traefik, Homepage, Watchtower
+**Always on** (no profile required): Caddy, Homepage, Watchtower
 
 ## TLS Profiles
 
@@ -108,7 +117,7 @@ Control which services are deployed by editing `COMPOSE_PROFILES` in `stack.env`
 |---------|---------|-------------------|-------|
 | `local` | `*.local` | mkcert (trusted locally) | `make certs` |
 | `cloud` | `*.devstack` | Self-signed via cloud-init | Automatic |
-| `aws` | `*.example.com` | ACM-exported certificates | `scripts/import-acm-certs.ps1` |
+| `aws` | your domain (e.g. `*.devhub.ninja`) | ACM-exported certificates | `scripts/import-acm-certs.sh` |
 
 Set `TLS_PROFILE` in `stack.env` to switch between profiles.
 
@@ -136,9 +145,9 @@ See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and 
 | `make validate` | Validate compose config |
 | `make pull` | Pull latest images |
 | `make top` | Show resource usage |
-| `make certs` | Generate TLS certificates |
-| `make hosts` | Update Windows hosts file |
-| `make register-runner` | Register GitLab Runner |
+| `make backup` | Back up GitLab + stateful volumes (cron-friendly: `scripts/backup.sh -d <dir> -k <keep>`) |
+| `make certs` | Print the ACM cert-import command |
+| `make register-runner` | Register GitLab Runner (manual; or `make gitlab-setup`) |
 | `make vault-init` | Initialize Vault |
 | `make clean` | Remove all data (destructive) |
 
@@ -151,13 +160,14 @@ See [`infra/SETUP.md`](infra/SETUP.md) for the full deployment walkthrough, and 
 ├── stack.env                   # Profile and TLS mode selection
 ├── .env                        # Hostnames and credentials (gitignored)
 ├── Makefile                    # Common operations
-├── traefik/
-│   ├── traefik.yml             # Static config (entrypoints, providers)
-│   ├── dynamic/tls.yml         # TLS certificate references
+├── caddy/
+│   ├── Caddyfile               # Base config (global options + tls_certs snippet)
 │   └── certs/                  # TLS certificates (gitignored)
 ├── prometheus/
 │   ├── prometheus.yml          # Scrape targets
+│   ├── alertmanager.yml        # Alert routing (ntfy/email/Slack receivers)
 │   └── alerts/alerts.yml       # Alert rules
+├── loki/config.yml             # Log storage + 30d retention
 ├── grafana/provisioning/
 │   ├── datasources/            # Prometheus + Loki datasources
 │   └── dashboards/             # Dashboard provisioning + JSON

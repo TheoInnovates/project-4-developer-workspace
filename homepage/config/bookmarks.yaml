@@ -5,9 +5,9 @@
     - Nexus Docs:
         - href: https://help.sonatype.com/en/sonatype-nexus-repository.html
           icon: nexus
-    - Traefik Docs:
-        - href: https://doc.traefik.io/traefik/
-          icon: traefik
+    - Caddy Docs:
+        - href: https://caddyserver.com/docs/
+          icon: caddy
     - Prometheus Docs:
         - href: https://prometheus.io/docs/
           icon: prometheus

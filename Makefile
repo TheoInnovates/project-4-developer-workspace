@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs certs hosts clean
+.PHONY: up down restart status logs certs clean backup
 
 # Start all services
 up:
@@ -25,13 +25,14 @@ logs:
 log:
 	docker compose logs -f $(s)
 
-# Generate TLS certificates (requires mkcert)
-certs:
-	powershell -ExecutionPolicy Bypass -File scripts/generate-certs.ps1
+# Back up GitLab + stateful volumes (see scripts/backup.sh for flags)
+backup:
+	bash scripts/backup.sh
 
-# Update Windows hosts file (requires admin)
-hosts:
-	powershell -ExecutionPolicy Bypass -File scripts/setup-hosts.ps1
+# Import exported ACM certs into caddy/certs/
+certs:
+	@echo "Import certs with:"
+	@echo "  bash scripts/import-acm-certs.sh -c <cert> -k <key> [-C <chain>] [-p <passphrase>]"
 
 # Validate docker-compose.yml
 validate:
@@ -49,15 +50,15 @@ top:
 # For automated registration, use: make gitlab-setup
 register-runner:
 	docker exec -it gitlab-runner gitlab-runner register \
-		--url https://gitlab.local \
+		--url http://gitlab \
 		--token $(TOKEN) \
 		--executor docker \
 		--docker-image alpine:latest \
 		--docker-network-mode devstack
 
-# Create GitLab group and users (first run only)
+# Create GitLab group + theo user and register the runner (first run only)
 gitlab-setup:
-	powershell -ExecutionPolicy Bypass -File scripts/gitlab-setup.ps1
+	bash scripts/gitlab-setup.sh
 
 # Initialize Vault (first run only)
 vault-init:

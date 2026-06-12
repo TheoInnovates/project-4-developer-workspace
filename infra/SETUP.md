@@ -76,11 +76,12 @@ This creates `~/.ssh/devstack` (private) and `~/.ssh/devstack.pub` (public). You
 
 ## Part 6: Install OpenTofu
 
-```powershell
-winget install OpenTofu.OpenTofu
+```bash
+# See https://opentofu.org/docs/intro/install/ — e.g. the standalone installer:
+curl -fsSL https://get.opentofu.org/install-opentofu.sh | bash -s -- --install-method standalone
 ```
 
-Restart your terminal, then verify:
+Then verify:
 
 ```bash
 tofu --version
@@ -167,12 +168,13 @@ docker compose logs -f
 
 Find the Tailscale IP of the devstack node:
 ```bash
-tailscale status | findstr devstack
+tailscale status | grep devstack
 ```
 
-It will show something like `100.64.1.23`. Then run as Administrator:
-```powershell
-powershell -File scripts/setup-hosts-cloud.ps1 -TailscaleIP 100.64.1.23
+It will show something like `100.64.1.23`. On each client, map `*.devstack` to that
+IP — via Tailscale MagicDNS, or by adding `/etc/hosts` entries (needs sudo):
+```bash
+# 100.64.1.23  home.devstack gitlab.devstack grafana.devstack nexus.devstack ...
 ```
 
 ## Part 12: Verify
@@ -188,7 +190,7 @@ powershell -File scripts/setup-hosts-cloud.ps1 -TailscaleIP 100.64.1.23
 | `tofu apply` fails with "Out of capacity" | ARM A1 instances are popular. Try again during off-peak hours (early morning/late night UTC). You can also try reducing to 2 OCPUs / 12 GB |
 | `devstack` not appearing in Tailscale | Check cloud-init logs: `tailscale ssh` won't work yet — use OCI Console serial console to check `/var/log/cloud-init-output.log` |
 | Services won't start | Verify `.env.cloud` exists and has correct values. Check `docker compose logs` for errors |
-| Browser can't reach `*.devstack` | Verify hosts file entries: `ping home.devstack` should resolve to `100.x.y.z`. Ensure Tailscale is connected on your Windows machine |
+| Browser can't reach `*.devstack` | Verify DNS/`/etc/hosts` mapping: `ping home.devstack` should resolve to `100.x.y.z`. Ensure Tailscale is connected on your client |
 | Self-signed cert warning | Expected — the cloud-init generates a self-signed cert. Click through the browser warning or import the cert into your trust store |
 
 ## Tear Down

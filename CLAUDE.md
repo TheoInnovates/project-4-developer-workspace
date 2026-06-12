@@ -4,56 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a **Docker Compose-based local developer workspace** running on Windows 11. It provisions a full self-hosted development infrastructure stack behind a Traefik reverse proxy with local TLS (`*.local` domains). All services share a single Docker bridge network called `devstack`.
+This is a **Docker Compose-based developer workspace** running on Linux. It provisions a full self-hosted development infrastructure stack behind a Caddy reverse proxy with TLS. The primary deployment is two Spark hosts reachable at `*.devhub.ninja` over Tailscale (spark-d5dd runs the dev stack + Nemotron vLLM; spark-06ad runs the Coder vLLM only); a `*.local` mkcert mode exists for single-host local development. All services share a single Docker bridge network called `devstack`.
 
 ## Commands
 
-All scripts are PowerShell (`.ps1`) in `scripts/`.
+Scripts are bash (`.sh`) in `scripts/`. This is a Linux-only deployment.
 
-```powershell
-# First-time setup (run as Administrator)
-powershell -File scripts/setup-hosts.ps1    # Add *.local entries to Windows hosts file
-powershell -File scripts/generate-certs.ps1 # Generate TLS certs via mkcert
+```bash
+# Deploy a target (loads its env file, overlay, and COMPOSE_PROFILES)
+bash scripts/deploy.sh spark-d5dd     # full dev stack + Nemotron (runs locally)
+bash scripts/deploy.sh spark-06ad     # Coder vLLM only (over SSH)
 
-# Start / stop the stack
-docker compose up -d
+# Or drive a single host directly
+docker compose up -d        # (make up / make down / make restart)
 docker compose down
 
-# Or use the wrapper scripts
-powershell -File scripts/start.ps1
-powershell -File scripts/stop.ps1
+# First-run GitLab init: developers group + theo user + runner registration
+bash scripts/gitlab-setup.sh
 
-# View logs for a specific service
+# Import an exported ACM cert into caddy/certs/
+bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem -C chain.pem -p <passphrase>
+
+# Logs / restart for a specific service
 docker compose logs -f <service-name>
-
-# Restart a single service
 docker compose restart <service-name>
 ```
 
 ## Architecture
 
-**Reverse Proxy:** Traefik v3.3 terminates TLS for all services. Config is split between `traefik/traefik.yml` (static — entrypoints, providers) and `traefik/dynamic/` (dynamic — TLS certs). HTTP auto-redirects to HTTPS. Docker labels on each service define routing rules (`Host()` matchers using env vars from `.env`).
+**Reverse Proxy:** Caddy (via the `caddy-docker-proxy` image) terminates TLS for all services. A small base `caddy/Caddyfile` holds global options, a plain `:2020` site exposing Prometheus metrics, and a reusable `(tls_certs)` snippet; per-service routing is generated dynamically from `caddy.*` Docker labels on each service (`caddy: <host>`, `caddy.reverse_proxy: {{upstreams <port>}}`, `caddy.import: tls_certs`). HTTP auto-redirects to HTTPS.
 
 **Services by function:**
 
 | Layer | Services |
 |---|---|
 | Development | GitLab CE (source control, CI/CD), GitLab Runner, Nexus (artifact repo), Docker Registry |
-| Monitoring | Prometheus, Grafana, Loki + Promtail (logs) |
+| Monitoring | Prometheus, Alertmanager (routes alerts, see `prometheus/alertmanager.yml`), Grafana, Loki + Promtail (logs), Uptime Kuma (status) |
 | Storage | MinIO (S3-compatible object storage) |
 | Security | HashiCorp Vault (secret management) |
-| Infrastructure | Traefik, Portainer (container UI), Watchtower (auto-updates at 4 AM), Homepage (dashboard) |
+| AI | vLLM Nemotron (spark-d5dd GPU), vLLM Coder (spark-06ad GPU), OpenWebUI (chat), SearXNG (RAG search) |
+| Tools | code-server (VS Code in the browser) |
+| Infrastructure | Caddy, Portainer (container UI), Watchtower (auto-updates at 4 AM), Homepage (dashboard) |
 
-**Networking:** All services resolve each other by container name on the `devstack` network. External access is through `*.local` domains mapped to `127.0.0.1` in the hosts file.
+**Networking:** All services resolve each other by container name on the `devstack` network. External access is through `*.devhub.ninja` domains (public Route53 records pointing at the host's Tailscale IP — resolvable publicly, reachable only on the tailnet), or `*.local` mapped to `127.0.0.1` in the hosts file for local mode.
 
-**Configuration pattern:** Each service with external config has a dedicated directory at the repo root (e.g., `traefik/`, `prometheus/`, `grafana/provisioning/`, `promtail/`, `vault/`, `homepage/config/`). Persistent data lives in `volumes/` (gitignored).
+**Configuration pattern:** Each service with external config has a dedicated directory at the repo root (e.g., `caddy/`, `prometheus/`, `grafana/provisioning/`, `promtail/`, `vault/`, `homepage/config/`). Persistent data lives in `volumes/` (gitignored).
 
 ## Key Files
 
-- `docker-compose.yml` — Single compose file defining all services, healthchecks, resource limits, and Traefik labels
+- `docker-compose.yml` — Single compose file defining all services, healthchecks, resource limits, and Caddy labels
 - `.env` — Hostnames, credentials, and ports (gitignored — contains passwords)
-- `traefik/traefik.yml` — Traefik static config (entrypoints, Docker/file providers, Prometheus metrics on `:8082`)
-- `traefik/dynamic/tls.yml` — TLS certificate references
+- `caddy/Caddyfile` — Caddy base config (global options, Prometheus metrics site on `:2020`, the `(tls_certs)` snippet). Routes themselves come from per-service Docker labels.
 - `prometheus/prometheus.yml` — Scrape targets for all services
 - `grafana/provisioning/` — Datasource (Prometheus) and dashboard provisioning
 - `homepage/config/` — Dashboard layout; services auto-discovered via Docker labels (`homepage.*`)
@@ -65,14 +66,20 @@ Services are grouped into Docker Compose profiles, controlled by the git-tracked
 | Profile | Services |
 |---|---|
 | `dev` | gitlab, gitlab-runner, nexus, registry |
-| `monitoring` | prometheus, grafana, loki, promtail |
+| `monitoring` | prometheus, alertmanager, grafana, loki, promtail |
 | `storage` | minio |
 | `security` | vault |
 | `infra` | portainer |
+| `nemotron` | vllm-nemotron (GPU, spark-d5dd) |
+| `coder` | vllm-coder (GPU, spark-06ad) |
+| `webui` | openwebui |
+| `search` | searxng |
+| `ide` | code-server |
+| `status` | uptime-kuma |
 
-**Always on** (no profile): traefik, homepage, watchtower
+**Always on** (no profile): caddy, homepage, watchtower
 
-To disable a group, remove it from `COMPOSE_PROFILES` in `stack.env` and redeploy. The wrapper scripts (`start.ps1`, `stop.ps1`, `deploy.sh`) automatically load `stack.env`.
+To disable a group, remove it from `COMPOSE_PROFILES` in `stack.env` and redeploy. `scripts/deploy.sh` injects the right `COMPOSE_PROFILES` and env file per target.
 
 ## TLS Profiles
 
@@ -80,35 +87,35 @@ The stack supports three TLS/domain modes, controlled by `TLS_PROFILE` in `stack
 
 | Profile | Env File | Domains | Cert Source |
 |---------|----------|---------|-------------|
-| `local` | `.env` | `*.local` | mkcert (`scripts/generate-certs.ps1`) |
+| `local` | `.env` | `*.local` | mkcert (run `mkcert` into `caddy/certs/`) |
 | `cloud` | `.env.cloud` | `*.devstack` | Self-signed via cloud-init OpenSSL |
-| `aws` | `.env.aws` | `*.example.com` | ACM-exported certs (`scripts/import-acm-certs.ps1`) |
+| `aws` | `.env.aws` (or per-host, e.g. `.env.spark-d5dd`) | your domain (e.g. `*.devhub.ninja`) | ACM-exported certs (`scripts/import-acm-certs.sh`) |
 
-All modes use standardized filenames `cert.pem` / `key.pem` in `traefik/certs/`.
+All modes use standardized filenames `cert.pem` / `key.pem` in `caddy/certs/`.
 
-**Quick start with AWS domain:**
-```powershell
-# 1. Import ACM certs (decrypts the passphrase-encrypted private key)
-powershell -File scripts/import-acm-certs.ps1 -CertFile cert.pem -KeyFile key.enc.pem -ChainFile chain.pem -Passphrase "your-passphrase"
+**Quick start with an AWS/Route53 domain:**
+```bash
+# 1. Import the exported ACM cert (decrypts the passphrase-encrypted key) into caddy/certs/
+bash scripts/import-acm-certs.sh -c cert.pem -k key.enc.pem -C chain.pem -p "your-passphrase"
 
-# 2. Create env file from template
-cp .env.aws.example .env.aws   # Edit domain and passwords
+# 2. Create env file from template, set the *.<domain> hostnames + TAILSCALE_IP
+cp .env.aws.example .env.aws   # or edit .env.spark-d5dd for a Spark host
 
-# 3. Add DNS entries to hosts file (run as Admin)
-powershell -File scripts/setup-hosts-aws.ps1 -Domain example.com
+# 3. Add a public Route53 record: *.<domain> -> the host's Tailscale IP (100.x.y.z)
+#    (resolves publicly but is only reachable on the tailnet)
 
-# 4. Set profile and start
-# Edit stack.env: TLS_PROFILE=aws
-powershell -File scripts/start.ps1
+# 4. Deploy
+bash scripts/deploy.sh spark-d5dd      # or: TLS_PROFILE=aws + make up
 ```
 
 ## Conventions
 
-- Services expose themselves to Traefik via Docker labels (`traefik.enable: "true"`) — `exposedByDefault` is false
+- Services expose themselves to Caddy via Docker labels (`caddy: ${HOST}` + `caddy.reverse_proxy: {{upstreams <port>}}` + `caddy.import: tls_certs`); only running containers get routed
 - Homepage dashboard entries are also defined as Docker labels on each service
-- Hostnames follow the pattern `<service>.local`, configured in `.env` and referenced as `${VAR}` in compose labels
-- TLS certs are generated with `mkcert` and stored in `traefik/certs/` (gitignored)
+- Hostnames follow the pattern `<service>.<domain-suffix>` (e.g. `gitlab.devhub.ninja`), configured in the per-target env file and referenced as `${VAR}` in compose labels
+- TLS certs live in `caddy/certs/` as `cert.pem` + `key.pem` (gitignored) — ACM-exported for `*.devhub.ninja`, or mkcert for local mode
 - Resource limits (`deploy.resources.limits.memory`) are set on every service
+- Stateful/heavy service images are version-pinned; Watchtower only auto-updates services that opt in via the `com.centurylinklabs.watchtower.enable: "true"` label (upgrade pinned services by bumping the tag and redeploying)
 - GitLab is the heaviest service (6 GB memory limit, 5-min start period); plan accordingly when starting the stack
 
 ## Cloud Deployment (OCI + Tailscale)
@@ -132,18 +139,16 @@ cd /opt/devstack
 cp .env.cloud .env.cloud  # Edit passwords first
 docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d
 
-# Deploy updates from Windows
-bash scripts/deploy.sh
+# Deploy updates
+bash scripts/deploy.sh devstack
 
-# Add *.devstack DNS entries to Windows hosts file (run as Admin)
-powershell -File scripts/setup-hosts-cloud.ps1 -TailscaleIP 100.x.y.z
+# Resolve *.devstack on clients via Tailscale MagicDNS, or /etc/hosts -> 100.x.y.z
 ```
 
 **Key cloud files:**
 - `infra/` — OpenTofu configs (OCI provider, networking module, compute module, cloud-init)
 - `docker-compose.cloud.yml` — Override file (localhost-only ports, cloud hostnames)
 - `.env.cloud` — Cloud hostnames with `.devstack` suffix (gitignored)
-- `scripts/deploy.sh` — Tailscale SSH deploy helper
-- `scripts/setup-hosts-cloud.ps1` — Adds `*.devstack` entries to Windows hosts file
+- `scripts/deploy.sh` — per-target deploy helper (local or Tailscale SSH)
 
-**DNS:** Services use `*.devstack` hostnames (e.g., `home.devstack`, `gitlab.devstack`). These resolve via Windows hosts file entries pointing to the Tailscale IP (`100.x.y.z`). No domain purchase needed.
+**DNS:** Services use `*.devstack` hostnames (e.g., `home.devstack`, `gitlab.devstack`). These resolve via Tailscale MagicDNS or `/etc/hosts` entries pointing to the Tailscale IP (`100.x.y.z`). No domain purchase needed.

@@ -5,24 +5,27 @@ networks:
 
 services:
   # =========================================================================
-  # Traefik - Reverse Proxy
+  # Caddy - Reverse Proxy (caddy-docker-proxy, label-driven)
   # =========================================================================
-  traefik:
-    image: traefik:v3.3
-    container_name: traefik
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:2.10-alpine
+    container_name: caddy
     restart: unless-stopped
     networks:
       - devstack
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      # Base Caddyfile providing global options + the reusable (tls_certs) snippet
+      CADDY_DOCKER_CADDYFILE_PATH: /etc/caddy/Caddyfile
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      - ./traefik/certs:/etc/traefik/certs:ro
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/certs:/certs:ro
+      - ${VOLUMES_BASE}/caddy-data:/data
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/metrics"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -32,25 +35,18 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.traefik.rule: "Host(`${TRAEFIK_HOST}`)"
-      traefik.http.routers.traefik.entrypoints: websecure
-      traefik.http.routers.traefik.tls: "true"
-      traefik.http.routers.traefik.service: api@internal
-      # Homepage
+      # Caddy has no web dashboard; the admin/metrics API is exposed on :2019
       homepage.group: Infrastructure
-      homepage.name: Traefik
-      homepage.icon: traefik
-      homepage.href: "https://${TRAEFIK_HOST}"
-      homepage.description: Reverse Proxy & Load Balancer
-      homepage.widget.type: traefik
-      homepage.widget.url: "https://traefik:443"
+      homepage.name: Caddy
+      homepage.icon: caddy
+      homepage.href: ""
+      homepage.description: Reverse Proxy & TLS
 
   # =========================================================================
   # GitLab CE - Source Control
   # =========================================================================
   gitlab:
-    image: gitlab/gitlab-ce:latest
+    image: gitlab/gitlab-ce:19.0.2-ce.0
     container_name: gitlab
     restart: unless-stopped
     profiles: [dev]
@@ -68,7 +64,7 @@ services:
         external_url 'https://${GITLAB_HOST}'
         gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD}'
 
-        # Use Traefik for TLS termination
+        # Use Caddy for TLS termination
         nginx['listen_port'] = 80
         nginx['listen_https'] = false
 
@@ -98,11 +94,9 @@ services:
           memory: 6G
     shm_size: 256m
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.gitlab.rule: "Host(`${GITLAB_HOST}`)"
-      traefik.http.routers.gitlab.entrypoints: websecure
-      traefik.http.routers.gitlab.tls: "true"
-      traefik.http.services.gitlab.loadbalancer.server.port: "80"
+      caddy: ${GITLAB_HOST}
+      caddy.reverse_proxy: "{{upstreams 80}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Development
       homepage.name: GitLab
@@ -114,7 +108,7 @@ services:
   # GitLab Runner - CI/CD Executor
   # =========================================================================
   gitlab-runner:
-    image: gitlab/gitlab-runner:latest
+    image: gitlab/gitlab-runner:v19.0.1
     container_name: gitlab-runner
     restart: unless-stopped
     profiles: [dev]
@@ -147,7 +141,7 @@ services:
   # Nexus Repository - Artifact Management
   # =========================================================================
   nexus:
-    image: sonatype/nexus3:latest
+    image: sonatype/nexus3:3.93.0
     container_name: nexus
     restart: unless-stopped
     profiles: [dev]
@@ -173,11 +167,9 @@ services:
         -Xmx1536m
         -XX:MaxDirectMemorySize=512m
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.nexus.rule: "Host(`${NEXUS_HOST}`)"
-      traefik.http.routers.nexus.entrypoints: websecure
-      traefik.http.routers.nexus.tls: "true"
-      traefik.http.services.nexus.loadbalancer.server.port: "8081"
+      caddy: ${NEXUS_HOST}
+      caddy.reverse_proxy: "{{upstreams 8081}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Development
       homepage.name: Nexus
@@ -212,11 +204,9 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.registry.rule: "Host(`${REGISTRY_HOST}`)"
-      traefik.http.routers.registry.entrypoints: websecure
-      traefik.http.routers.registry.tls: "true"
-      traefik.http.services.registry.loadbalancer.server.port: "5000"
+      caddy: ${REGISTRY_HOST}
+      caddy.reverse_proxy: "{{upstreams 5000}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Development
       homepage.name: Registry
@@ -228,7 +218,7 @@ services:
   # Prometheus - Metrics Collection
   # =========================================================================
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.12.0
     container_name: prometheus
     restart: unless-stopped
     profiles: [monitoring]
@@ -256,11 +246,9 @@ services:
         limits:
           memory: 512M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.prometheus.rule: "Host(`${PROMETHEUS_HOST}`)"
-      traefik.http.routers.prometheus.entrypoints: websecure
-      traefik.http.routers.prometheus.tls: "true"
-      traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+      caddy: ${PROMETHEUS_HOST}
+      caddy.reverse_proxy: "{{upstreams 9090}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Monitoring
       homepage.name: Prometheus
@@ -271,10 +259,50 @@ services:
       homepage.widget.url: "http://prometheus:9090"
 
   # =========================================================================
+  # Alertmanager - Alert Routing
+  # =========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.32.2
+    container_name: alertmanager
+    restart: unless-stopped
+    profiles: [monitoring]
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - devstack
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ${VOLUMES_BASE}/alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=https://${ALERTMANAGER_HOST}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9093/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    labels:
+      caddy: ${ALERTMANAGER_HOST}
+      caddy.reverse_proxy: "{{upstreams 9093}}"
+      caddy.import: tls_certs
+      # Homepage
+      homepage.group: Monitoring
+      homepage.name: Alertmanager
+      homepage.icon: alertmanager
+      homepage.href: "https://${ALERTMANAGER_HOST}"
+      homepage.description: Alert Routing & Notifications
+
+  # =========================================================================
   # Grafana - Metrics Visualization
   # =========================================================================
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.0.2
     container_name: grafana
     restart: unless-stopped
     profiles: [monitoring]
@@ -300,11 +328,9 @@ services:
         limits:
           memory: 256M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.grafana.rule: "Host(`${GRAFANA_HOST}`)"
-      traefik.http.routers.grafana.entrypoints: websecure
-      traefik.http.routers.grafana.tls: "true"
-      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+      caddy: ${GRAFANA_HOST}
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Monitoring
       homepage.name: Grafana
@@ -320,7 +346,7 @@ services:
   # Loki - Log Aggregation
   # =========================================================================
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.7.2
     container_name: loki
     restart: unless-stopped
     profiles: [monitoring]
@@ -329,14 +355,11 @@ services:
     networks:
       - devstack
     volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
       - ${VOLUMES_BASE}/loki-data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+    command: -config.file=/etc/loki/config.yml
+    # No healthcheck: the loki image is distroless (no shell/wget/curl), so an
+    # in-container HTTP probe can't run. Promtail's depends_on uses service_started.
     deploy:
       resources:
         limits:
@@ -352,7 +375,7 @@ services:
   # Promtail - Log Collector
   # =========================================================================
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:3.6.8
     container_name: promtail
     restart: unless-stopped
     profiles: [monitoring]
@@ -364,9 +387,11 @@ services:
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9080/ready || exit 1"]
+      # The promtail image has no wget/curl, but it does ship bash: probe /ready
+      # over bash's /dev/tcp instead.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9080 && printf \"GET /ready HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -386,7 +411,7 @@ services:
   # MinIO - Object Storage
   # =========================================================================
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: minio
     restart: unless-stopped
     profiles: [storage]
@@ -412,19 +437,14 @@ services:
         limits:
           memory: 512M
     labels:
-      traefik.enable: "true"
       # Console UI
-      traefik.http.routers.minio-console.rule: "Host(`${MINIO_HOST}`)"
-      traefik.http.routers.minio-console.entrypoints: websecure
-      traefik.http.routers.minio-console.tls: "true"
-      traefik.http.routers.minio-console.service: minio-console
-      traefik.http.services.minio-console.loadbalancer.server.port: "9001"
+      caddy_0: ${MINIO_HOST}
+      caddy_0.reverse_proxy: "{{upstreams 9001}}"
+      caddy_0.import: tls_certs
       # S3 API
-      traefik.http.routers.minio-api.rule: "Host(`${MINIO_API_HOST}`)"
-      traefik.http.routers.minio-api.entrypoints: websecure
-      traefik.http.routers.minio-api.tls: "true"
-      traefik.http.routers.minio-api.service: minio-api
-      traefik.http.services.minio-api.loadbalancer.server.port: "9000"
+      caddy_1: ${MINIO_API_HOST}
+      caddy_1.reverse_proxy: "{{upstreams 9000}}"
+      caddy_1.import: tls_certs
       # Homepage
       homepage.group: Storage
       homepage.name: MinIO
@@ -436,7 +456,7 @@ services:
   # Vault - Secret Management
   # =========================================================================
   vault:
-    image: hashicorp/vault:latest
+    image: hashicorp/vault:2.0.2
     container_name: vault
     restart: unless-stopped
     profiles: [security]
@@ -461,11 +481,9 @@ services:
         limits:
           memory: 256M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.vault.rule: "Host(`${VAULT_HOST}`)"
-      traefik.http.routers.vault.entrypoints: websecure
-      traefik.http.routers.vault.tls: "true"
-      traefik.http.services.vault.loadbalancer.server.port: "8200"
+      caddy: ${VAULT_HOST}
+      caddy.reverse_proxy: "{{upstreams 8200}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Security
       homepage.name: Vault
@@ -477,7 +495,7 @@ services:
   # Portainer - Container Management
   # =========================================================================
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.39.3
     container_name: portainer
     restart: unless-stopped
     profiles: [infra]
@@ -497,11 +515,9 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.portainer.rule: "Host(`${PORTAINER_HOST}`)"
-      traefik.http.routers.portainer.entrypoints: websecure
-      traefik.http.routers.portainer.tls: "true"
-      traefik.http.services.portainer.loadbalancer.server.port: "9000"
+      caddy: ${PORTAINER_HOST}
+      caddy.reverse_proxy: "{{upstreams 9000}}"
+      caddy.import: tls_certs
       # Homepage
       homepage.group: Infrastructure
       homepage.name: Portainer
@@ -516,7 +532,7 @@ services:
   # Watchtower - Automatic Container Updates
   # =========================================================================
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
     networks:
@@ -528,16 +544,21 @@ services:
       WATCHTOWER_SCHEDULE: "0 0 4 * * *"
       WATCHTOWER_INCLUDE_STOPPED: "false"
       WATCHTOWER_REVIVE_STOPPED: "false"
+      # Only update containers that opt in via the
+      # com.centurylinklabs.watchtower.enable label. Pinned stateful services
+      # (gitlab, nexus, minio, vault, ...) are upgraded deliberately instead.
+      WATCHTOWER_LABEL_ENABLE: "true"
     deploy:
       resources:
         limits:
           memory: 64M
     labels:
+      com.centurylinklabs.watchtower.enable: "true"
       homepage.group: Infrastructure
       homepage.name: Watchtower
       homepage.icon: watchtower
       homepage.href: ""
-      homepage.description: Auto-updates containers daily at 4 AM
+      homepage.description: Auto-updates opt-in containers daily at 4 AM
 
   # =========================================================================
   # Homepage - Dashboard
@@ -566,11 +587,10 @@ services:
         limits:
           memory: 128M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.homepage.rule: "Host(`${HOMEPAGE_HOST}`)"
-      traefik.http.routers.homepage.entrypoints: websecure
-      traefik.http.routers.homepage.tls: "true"
-      traefik.http.services.homepage.loadbalancer.server.port: "3000"
+      caddy: ${HOMEPAGE_HOST}
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+      caddy.import: tls_certs
+      com.centurylinklabs.watchtower.enable: "true"
       # Homepage self-entry
       homepage.group: Infrastructure
       homepage.name: Homepage
@@ -672,11 +692,10 @@ services:
         limits:
           memory: 1G
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.openwebui.rule: "Host(`${OPENWEBUI_HOST}`)"
-      traefik.http.routers.openwebui.entrypoints: websecure
-      traefik.http.routers.openwebui.tls: "true"
-      traefik.http.services.openwebui.loadbalancer.server.port: "8080"
+      caddy: ${OPENWEBUI_HOST}
+      com.centurylinklabs.watchtower.enable: "true"
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.import: tls_certs
       homepage.group: Inference
       homepage.name: OpenWebUI
       homepage.icon: open-webui
@@ -712,11 +731,10 @@ services:
         limits:
           memory: 512M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.searxng.rule: "Host(`${SEARXNG_HOST}`)"
-      traefik.http.routers.searxng.entrypoints: websecure
-      traefik.http.routers.searxng.tls: "true"
-      traefik.http.services.searxng.loadbalancer.server.port: "8080"
+      caddy: ${SEARXNG_HOST}
+      com.centurylinklabs.watchtower.enable: "true"
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.import: tls_certs
       homepage.group: Apps
       homepage.name: SearXNG
       homepage.icon: searxng
@@ -745,7 +763,7 @@ services:
       DEFAULT_WORKSPACE: /config/workspace
       PROXY_DOMAIN: ${CODESERVER_HOST}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8443/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8443/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -755,11 +773,10 @@ services:
         limits:
           memory: 2G
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.code-server.rule: "Host(`${CODESERVER_HOST}`)"
-      traefik.http.routers.code-server.entrypoints: websecure
-      traefik.http.routers.code-server.tls: "true"
-      traefik.http.services.code-server.loadbalancer.server.port: "8443"
+      caddy: ${CODESERVER_HOST}
+      com.centurylinklabs.watchtower.enable: "true"
+      caddy.reverse_proxy: "{{upstreams 8443}}"
+      caddy.import: tls_certs
       homepage.group: Development
       homepage.name: code-server
       homepage.icon: vscode
@@ -789,11 +806,10 @@ services:
         limits:
           memory: 256M
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.uptime.rule: "Host(`${UPTIME_HOST}`)"
-      traefik.http.routers.uptime.entrypoints: websecure
-      traefik.http.routers.uptime.tls: "true"
-      traefik.http.services.uptime.loadbalancer.server.port: "3001"
+      caddy: ${UPTIME_HOST}
+      com.centurylinklabs.watchtower.enable: "true"
+      caddy.reverse_proxy: "{{upstreams 3001}}"
+      caddy.import: tls_certs
       homepage.group: Monitoring
       homepage.name: Uptime Kuma
       homepage.icon: uptime-kuma

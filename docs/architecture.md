@@ -2,7 +2,7 @@
 
 ## Service Topology
 
-The workspace runs 14 services organized into five functional layers, all behind a Traefik reverse proxy on a single Docker bridge network.
+The workspace runs 14 services organized into five functional layers, all behind a Caddy reverse proxy on a single Docker bridge network.
 
 ```
                          +-----------------------+
@@ -13,11 +13,11 @@ The workspace runs 14 services organized into five functional layers, all behind
                                     |
                               :80  :443
                          +----------+------------+
-                         |       Traefik         |
+                         |        Caddy          |
                          |  - TLS termination    |
                          |  - Host-based routing |
                          |  - HTTP -> HTTPS      |
-                         |  - Metrics on :8082   |
+                         |  - Metrics on :2019   |
                          +----------+------------+
                                     |
                +--------------------------------------------+
@@ -59,8 +59,8 @@ The workspace runs 14 services organized into five functional layers, all behind
 
 ## Network Flow
 
-1. **DNS Resolution:** `*.local` domains resolve to `127.0.0.1` via the Windows hosts file (managed by `scripts/setup-hosts.ps1`)
-2. **TLS Termination:** Traefik receives all traffic on `:443`, terminates TLS using certificates from `traefik/certs/`, and routes based on `Host()` rules defined as Docker labels on each service
+1. **DNS Resolution:** service hostnames resolve to the host — `127.0.0.1` for `*.local` (via `/etc/hosts`), or a public Route53 record pointing at the host's Tailscale IP for a real domain (e.g. `*.devhub.ninja`)
+2. **TLS Termination:** Caddy receives all traffic on `:443`, terminates TLS using certificates from `caddy/certs/`, and routes based on the host + upstream defined as `caddy.*` Docker labels on each service
 3. **HTTP Redirect:** Port `:80` automatically redirects to `:443`
 4. **Internal Communication:** Services communicate by container name on the `devstack` bridge network (e.g., Prometheus scrapes `grafana:3000`)
 
@@ -110,7 +110,7 @@ The workspace runs 14 services organized into five functional layers, all behind
 | Grafana | 256 MB | |
 | Loki | 256 MB | |
 | Vault | 256 MB | |
-| Traefik | 128 MB | |
+| Caddy | 128 MB | |
 | Registry | 128 MB | |
 | Portainer | 128 MB | |
 | Promtail | 128 MB | |

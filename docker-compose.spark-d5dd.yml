@@ -4,11 +4,14 @@
 #     --env-file .env.spark-d5dd up -d
 
 services:
-  # Traefik on Tailscale-only network — bind to localhost
-  traefik:
-    ports:
-      - "127.0.0.1:80:80"
-      - "127.0.0.1:443:443"
+  # Caddy bound to this host's Tailscale IP only — reachable from the tailnet
+  # (via Route53 *.devhub.ninja -> ${TAILSCALE_IP}) but not the LAN/public.
+  # !override replaces the base 0.0.0.0 binding instead of merging with it
+  # (otherwise Caddy tries to bind both and collides on the port).
+  caddy:
+    ports: !override
+      - "${TAILSCALE_IP}:80:80"
+      - "${TAILSCALE_IP}:443:443"
 
   # GitLab — heavier limit since the Spark has plenty of RAM
   gitlab:
