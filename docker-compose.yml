@@ -681,6 +681,7 @@ services:
     environment:
       WEBUI_NAME: ${WEBUI_NAME:-Devstack}
       WEBUI_URL: "https://${OPENWEBUI_HOST}"
+      ENABLE_API_KEYS: "true"
       OPENAI_API_BASE_URLS: ${OPENWEBUI_API_BASE_URLS}
       OPENAI_API_KEYS: ${OPENWEBUI_API_KEYS}
       ENABLE_RAG_WEB_SEARCH: ${ENABLE_RAG_WEB_SEARCH:-false}
