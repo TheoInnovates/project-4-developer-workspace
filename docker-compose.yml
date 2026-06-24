@@ -71,11 +71,13 @@ services:
         # SSH config
         gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT}
 
-        # Performance tuning for local dev
-        puma['workers'] = 2
+        # Performance tuning for local dev (co-tenant with Nemotron vLLM).
+        # NOTE: the omnibus key is puma['worker_processes'], NOT puma['workers']
+        # (the latter is silently ignored, leaving GitLab at its ~CPU-count default).
+        puma['worker_processes'] = 4
         puma['min_threads'] = 1
         puma['max_threads'] = 4
-        sidekiq['concurrency'] = 10
+        sidekiq['max_concurrency'] = 8
 
         # Disable built-in monitoring (using external Prometheus/Grafana)
         prometheus_monitoring['enable'] = false
@@ -696,6 +698,23 @@ services:
       ENABLE_RAG_WEB_SEARCH: ${ENABLE_RAG_WEB_SEARCH:-false}
       RAG_WEB_SEARCH_ENGINE: ${RAG_WEB_SEARCH_ENGINE:-searxng}
       SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>&format=json"
+      # --- RAG quality: hybrid BM25 + local cross-encoder reranking (retrieve
+      # wide, rerank tight). Reranker is small/CPU-friendly (~120MB resident).
+      # NOTE: these are PersistentConfig — once set in the DB (data volume) the
+      # DB value wins; these env lines only seed a fresh deployment. ---
+      ENABLE_RAG_HYBRID_SEARCH: "true"
+      RAG_RERANKING_ENGINE: ""
+      RAG_RERANKING_MODEL: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      RAG_TOP_K: "20"
+      RAG_TOP_K_RERANKER: "5"
+      # --- Code interpreter: browser-sandboxed Pyodide (zero infra). To upgrade
+      # to server-side execution, stand up a dedicated Jupyter kernel-gateway
+      # WITH a token (the interactive jupyter on :11002 is token-less + XSRF, so
+      # OpenWebUI can't create kernels on it). See openwebui/README.md. ---
+      ENABLE_CODE_INTERPRETER: "true"
+      CODE_INTERPRETER_ENGINE: "pyodide"
+      ENABLE_CODE_EXECUTION: "true"
+      CODE_EXECUTION_ENGINE: "pyodide"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 30s
@@ -705,7 +724,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 2G   # raised from 1G to fit the RAG reranker model alongside the app
     labels:
       caddy: ${OPENWEBUI_HOST}
       com.centurylinklabs.watchtower.enable: "true"
@@ -721,7 +740,10 @@ services:
   # SearXNG - Private metasearch (web search backend for OpenWebUI RAG)
   # =========================================================================
   searxng:
-    image: searxng/searxng:latest
+    # Pinned (was :latest). Watchtower auto-pulled a build whose stricter engine
+    # schema rejected `about.language` keys in settings.yml, crash-looping the
+    # container. Bump deliberately after checking settings.yml compatibility.
+    image: searxng/searxng:2026.6.15-cf1410af8
     container_name: searxng
     restart: unless-stopped
     profiles: [search]
@@ -747,7 +769,7 @@ services:
           memory: 512M
     labels:
       caddy: ${SEARXNG_HOST}
-      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.enable: "false"
       caddy.reverse_proxy: "{{upstreams 8080}}"
       caddy.import: tls_certs
       homepage.group: Apps
