@@ -53,11 +53,34 @@
 #     the super_v3 parser/enable_thinking pairing trap documented in
 #     start-nemotron.sh does not apply here.
 #
-#   - MTP speculative decoding is the next lever on decode speed:
-#     mtp.safetensors ships in the repo, vLLM registers Qwen3_5MTP, and the
-#     recipe quotes 0.77-0.90 acceptance. Add once baseline tok/s is known:
-#       --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
-#     Left off for the first boot so the baseline is actually measurable.
+#   - MTP speculative decoding is ON. mtp.safetensors ships in the model repo
+#     and vLLM registers Qwen3_5MTP, so no extra draft model is needed. This
+#     is the main lever on decode speed: the measured baseline without it was
+#     ~8.3 tok/s, which is bandwidth-bound rather than compute-bound, exactly
+#     the regime speculative decoding exists for.
+#
+#     Unlike Nemotron — whose script documents MTP being unusable because its
+#     unquantized MTP head could not share the marlin MoE backend — this model
+#     is dense, so that conflict does not arise.
+#
+#     Measured on this host, greedy (temp 0), 400-token completions:
+#
+#       prompt type        baseline    MTP     speedup   draft acceptance
+#       code-boilerplate    8.34      20.31     2.44x      92-98%
+#       code-algorithm      8.34      21.75     2.61x      92-98%
+#       structured-json     8.34      21.97     2.63x      92-98%
+#       open-prose          8.33      16.16     1.94x      57-65%
+#       mean                8.34      20.05     2.40x
+#
+#     The baseline is flat to 0.01 tok/s across all four — decode here is
+#     bandwidth-bound, so content doesn't matter until speculation enters the
+#     picture. All the post-MTP spread is acceptance rate.
+#
+#     num_speculative_tokens=3 follows the vLLM recipe and suits a coding
+#     workload. Per-position acceptance shows why 3 is the right stopping
+#     point for mixed use: code holds up at position 3 (0.877) while prose
+#     collapses (0.312). If this host ever serves code exclusively, 4-5 is
+#     worth testing; for mixed traffic the extra drafts would be wasted work.
 set -e
 
 echo "[qwen38] Serving ${QWEN38_MODEL} on port ${QWEN38_PORT:-8001}..."
@@ -70,4 +93,5 @@ exec vllm serve "${QWEN38_MODEL}" \
     --reasoning-parser qwen3 \
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_coder \
+    --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
     --api-key "${VLLM_API_KEY}"
