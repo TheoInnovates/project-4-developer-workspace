@@ -24,6 +24,10 @@ from pydantic import BaseModel, Field
 OPENAI_PASSTHROUGH = (
     "temperature", "top_p", "max_tokens", "stop", "seed",
     "frequency_penalty", "presence_penalty", "tools", "tool_choice",
+    # Without these two the smart lane's thinking controls are unreachable:
+    # reasoning_effort would always fall through to the valve default, and
+    # OpenWebUI's thinking toggle would silently no-op.
+    "reasoning_effort", "chat_template_kwargs",
 )
 
 
@@ -31,7 +35,7 @@ class Pipe:
     class Valves(BaseModel):
         smart_url: str = Field(default="http://100.108.158.44:8001/v1/chat/completions", description="Smart lane (spark-d5dd) chat-completions URL.")
         smart_model: str = Field(default="Qwen/Qwen3.8-27B-FP8", description="Smart lane model id.")
-        smart_reasoning_effort: str = Field(default="low", description="reasoning_effort for the smart lane: low | medium | xhigh. The model defaults to xhigh, which is expensive at this model's decode speed — 'low' keeps interactive latency sane. Raise per chat when a task needs deep analysis.")
+        smart_reasoning_effort: str = Field(default="low", description="reasoning_effort for the smart lane. Only 'low' and 'medium' can be sent on the wire; any other value (e.g. 'xhigh', 'default') omits the field, which is how the model's own xhigh default is selected. The model defaults to xhigh, which is expensive at ~8 tok/s — 'low' keeps interactive latency sane. Callers may override per request.")
         coder_url: str = Field(default="http://100.102.222.96:8001/v1/chat/completions", description="Fast lane (spark-06ad) chat-completions URL.")
         coder_model: str = Field(default="Qwen/Qwen3-Coder-Next-FP8", description="Fast lane model id.")
         api_key: str = Field(default="local-vllm-key", description="vLLM API key.")
@@ -78,10 +82,21 @@ class Pipe:
         for k in OPENAI_PASSTHROUGH:
             if k in body and body[k] is not None:
                 payload[k] = body[k]
-        # Qwen3.8 thinks at reasoning_effort=xhigh unless told otherwise. Don't
-        # override a value the caller set explicitly.
+        # Qwen3.8 thinks at reasoning_effort=xhigh unless told otherwise, and
+        # that thinking is invisible latency: measured on spark-d5dd, "is 91
+        # prime?" spends ~140 reasoning tokens at ~8.3 tok/s. Apply the valve
+        # default only when the caller hasn't asked for something specific.
+        #
+        # 'xhigh' is requested by OMITTING the field, never by naming it. Two
+        # validation layers disagree: vLLM's request schema checks against
+        # OpenAI's enum (none|low|medium|high) and rejects 'xhigh', while the
+        # model's chat template accepts (xhigh|medium|low) and rejects 'high'.
+        # Only 'low' and 'medium' pass both; the template defaults to xhigh
+        # when the field is absent. So anything else here means "send nothing".
         if not coding and "reasoning_effort" not in payload:
-            payload["reasoning_effort"] = self.valves.smart_reasoning_effort
+            effort = (self.valves.smart_reasoning_effort or "").strip().lower()
+            if effort in ("low", "medium"):
+                payload["reasoning_effort"] = effort
         stream = bool(body.get("stream", False))
         payload["stream"] = stream
         headers = {"Authorization": "Bearer " + self.valves.api_key, "Content-Type": "application/json"}

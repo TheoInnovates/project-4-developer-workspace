@@ -32,13 +32,25 @@
 #     dev stack that no longer runs on this host.
 #
 #   - Thinking is ON, which is the model's default, and reasoning_effort
-#     defaults to 'xhigh'. At this model's decode speed that is expensive for
-#     interactive use. Tune per request with reasoning_effort='low'|'medium'
-#     or chat_template_kwargs={"enable_thinking": false}; set a server-wide
-#     default here only once the interactive cost has been measured.
-#     Unlike Nemotron, this model ships a working reasoning parser (qwen3),
-#     so reasoning_content is split from content properly rather than the
-#     parser swallowing the whole answer — the super_v3 pairing trap in
+#     defaults to 'xhigh'. That is invisible latency, not free: measured here,
+#     "is 91 prime?" burns ~140 reasoning tokens at ~8.3 tok/s. Suppress with
+#     chat_template_kwargs={"enable_thinking": false} (verified: reasoning goes
+#     to zero) or turn it down with reasoning_effort.
+#
+#     Two gotchas, both confirmed against this deployment:
+#
+#     a) reasoning_effort has two disagreeing validators. vLLM's request schema
+#        checks OpenAI's enum (none|low|medium|high) and 400s on 'xhigh'; the
+#        chat template accepts (xhigh|medium|low) and 400s on 'high'. Only
+#        'low' and 'medium' pass both. 'xhigh' is selected by OMITTING the
+#        field — the template defaults to it — never by naming it.
+#
+#     b) the reasoning text comes back in the message field `reasoning`, NOT
+#        `reasoning_content`. Clients reading the latter see an empty string
+#        and will wrongly conclude thinking is disabled.
+#
+#     The qwen3 reasoning parser works correctly, so content stays clean —
+#     the super_v3 parser/enable_thinking pairing trap documented in
 #     start-nemotron.sh does not apply here.
 #
 #   - MTP speculative decoding is the next lever on decode speed:
