@@ -2,7 +2,7 @@
 # Deploy project-4-workspace to one of the supported targets.
 #
 # Usage:
-#   ./scripts/deploy.sh spark-d5dd     # Spark 1: dev stack + Nemotron
+#   ./scripts/deploy.sh spark-d5dd     # Spark 1: Qwen3.8-27B vLLM only (GPU)
 #   ./scripts/deploy.sh spark-06ad     # Spark 2: Coder only
 #   ./scripts/deploy.sh devstack       # Legacy: OCI cloud (Tailscale)
 #
@@ -25,7 +25,12 @@ case "$TARGET" in
   spark-d5dd)
     ENV_FILE=".env.spark-d5dd"
     OVERLAY="docker-compose.spark-d5dd.yml"
-    PROFILES="dev,monitoring,storage,security,infra,nemotron,webui,search,ide,status"
+    # GPU-only now: the dev/monitoring/storage/security/infra/webui/search/ide/
+    # status groups moved to the devhub VM on pve1, and vllm-qwen38 runs at 0.85
+    # GPU-memory-utilization on the assumption they stay there — restoring them
+    # here would contend for that memory.
+    # Rollback to Nemotron: swap `qwen38` for `nemotron`.
+    PROFILES="qwen38"
     SSH_TARGET=""                                          # run locally on spark-d5dd
     REMOTE_DIR="$REPO_ROOT"
     ;;

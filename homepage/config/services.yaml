@@ -3,8 +3,13 @@
 # Add manual entries here only for non-Docker services.
 
 - Inference:
+    - Qwen3.8-27B (Spark 1):
+        href: http://spark-d5dd:8001
+        icon: qwen
+        description: Remote vLLM on spark-d5dd serving Qwen3.8-27B-FP8 (smart lane)
+        ping: spark-d5dd
     - Qwen3-Coder-Next (Spark 2):
         href: http://spark-06ad:8001
         icon: qwen
-        description: Remote vLLM on spark-06ad serving Qwen3-Coder-Next-FP8
+        description: Remote vLLM on spark-06ad serving Qwen3-Coder-Next-FP8 (fast lane)
         ping: spark-06ad

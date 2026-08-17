@@ -634,6 +634,44 @@ services:
       homepage.href: "http://${VLLM_NEMOTRON_HREF_HOST:-localhost}:${VLLM_NEMOTRON_PORT:-8001}"
       homepage.description: "vLLM serving ${VLLM_NEMOTRON_MODEL:-}"
 
+  # Replaces vllm-nemotron on spark-d5dd. Both are profile-gated and both bind
+  # :8001, so exactly one may run at a time — that is deliberate: rolling back
+  # is `COMPOSE_PROFILES=nemotron` instead of `qwen38`, with no file edits.
+  vllm-qwen38:
+    # 26.04, matching vllm-coder: spark-d5dd was upgraded to driver 580.159.03,
+    # the version whose CUDA forward-compat 26.03 rejects (see vllm-coder below).
+    # 26.04 also carries vLLM 0.19.0 vs 26.03's 0.17.1; both register
+    # Qwen3_5ForConditionalGeneration, but the model card asks for the latest.
+    image: nvcr.io/nvidia/vllm:26.04-py3
+    container_name: vllm-qwen38
+    restart: unless-stopped
+    profiles: [qwen38]
+    network_mode: host
+    ipc: host
+    shm_size: "10.24g"
+    environment:
+      QWEN38_MODEL: ${VLLM_QWEN38_MODEL}
+      QWEN38_PORT: ${VLLM_QWEN38_PORT:-8001}
+      VLLM_API_KEY: ${VLLM_API_KEY}
+    volumes:
+      - ./scripts/vllm/start-qwen38.sh:/workspace/start.sh:ro
+      - ${HF_CACHE_DIR}:/root/.cache/huggingface
+    command: bash /workspace/start.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      homepage.group: Inference
+      homepage.name: Qwen3.8-27B
+      homepage.icon: qwen
+      homepage.href: "http://${VLLM_QWEN38_HREF_HOST:-localhost}:${VLLM_QWEN38_PORT:-8001}"
+      homepage.description: "vLLM serving ${VLLM_QWEN38_MODEL:-}"
+
   vllm-coder:
     # 26.04, not 26.03: spark-06ad runs driver 580.159.03, which 26.03's CUDA
     # forward-compat layer rejects ("compatibility mode UNAVAILABLE" -> Triton
