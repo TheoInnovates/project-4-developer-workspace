@@ -2,6 +2,7 @@
 # Deploy project-4-workspace to one of the supported targets.
 #
 # Usage:
+#   ./scripts/deploy.sh pve            # Proxmox VM: dev stack, no GPU services
 #   ./scripts/deploy.sh spark-d5dd     # Spark 1: dev stack + Nemotron
 #   ./scripts/deploy.sh spark-06ad     # Spark 2: Coder only
 #   ./scripts/deploy.sh devstack       # Legacy: OCI cloud (Tailscale)
@@ -17,11 +18,19 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 TARGET="${1:-}"
 if [[ -z "$TARGET" ]]; then
-  echo "Usage: $0 <spark-d5dd|spark-06ad|devstack>" >&2
+  echo "Usage: $0 <pve|spark-d5dd|spark-06ad|devstack>" >&2
   exit 1
 fi
 
 case "$TARGET" in
+  pve)
+    ENV_FILE=".env.pve"
+    OVERLAY="docker-compose.pve.yml"
+    # Same as spark-d5dd minus `nemotron` — this host has no GPU.
+    PROFILES="dev,monitoring,storage,security,infra,webui,search,ide,status,openuem,tasks"
+    SSH_TARGET="tforrester@192.168.1.220"                  # devhub VM on pve1
+    REMOTE_DIR="/home/tforrester/projects/project-4-workspace"
+    ;;
   spark-d5dd)
     ENV_FILE=".env.spark-d5dd"
     OVERLAY="docker-compose.spark-d5dd.yml"
@@ -45,7 +54,7 @@ case "$TARGET" in
     ;;
   *)
     echo "Unknown target: $TARGET" >&2
-    echo "Valid targets: spark-d5dd, spark-06ad, devstack" >&2
+    echo "Valid targets: pve, spark-d5dd, spark-06ad, devstack" >&2
     exit 1
     ;;
 esac

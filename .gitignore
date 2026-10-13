@@ -10,6 +10,7 @@ caddy/certs/
 .env.aws
 .env.spark-d5dd
 .env.spark-06ad
+.env.pve
 # Allow committed examples
 !.env.*.example
 

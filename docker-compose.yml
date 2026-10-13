@@ -2,6 +2,10 @@ networks:
   devstack:
     name: devstack
     driver: bridge
+  # OpenUEM backend (db/nats/ocsp/workers); only the console also joins devstack.
+  openuem:
+    name: openuem
+    driver: bridge
 
 services:
   # =========================================================================
@@ -46,7 +50,7 @@ services:
   # GitLab CE - Source Control
   # =========================================================================
   gitlab:
-    image: gitlab/gitlab-ce:19.0.2-ce.0
+    image: gitlab/gitlab-ce:19.4.1-ce.0
     container_name: gitlab
     restart: unless-stopped
     profiles: [dev]
@@ -110,7 +114,7 @@ services:
   # GitLab Runner - CI/CD Executor
   # =========================================================================
   gitlab-runner:
-    image: gitlab/gitlab-runner:v19.0.1
+    image: gitlab/gitlab-runner:v19.4.1
     container_name: gitlab-runner
     restart: unless-stopped
     profiles: [dev]
@@ -183,7 +187,7 @@ services:
   # Docker Registry
   # =========================================================================
   registry:
-    image: registry:2
+    image: registry:3.1.2
     container_name: registry
     restart: unless-stopped
     profiles: [dev]
@@ -220,7 +224,7 @@ services:
   # Prometheus - Metrics Collection
   # =========================================================================
   prometheus:
-    image: prom/prometheus:v3.12.0
+    image: prom/prometheus:v3.15.0
     container_name: prometheus
     restart: unless-stopped
     profiles: [monitoring]
@@ -264,7 +268,7 @@ services:
   # Alertmanager - Alert Routing
   # =========================================================================
   alertmanager:
-    image: prom/alertmanager:v0.32.2
+    image: prom/alertmanager:v0.34.1
     container_name: alertmanager
     restart: unless-stopped
     profiles: [monitoring]
@@ -304,7 +308,7 @@ services:
   # Grafana - Metrics Visualization
   # =========================================================================
   grafana:
-    image: grafana/grafana:13.0.2
+    image: grafana/grafana:13.2.3
     container_name: grafana
     restart: unless-stopped
     profiles: [monitoring]
@@ -348,7 +352,7 @@ services:
   # Loki - Log Aggregation
   # =========================================================================
   loki:
-    image: grafana/loki:3.7.2
+    image: grafana/loki:3.7.8
     container_name: loki
     restart: unless-stopped
     profiles: [monitoring]
@@ -377,7 +381,7 @@ services:
   # Promtail - Log Collector
   # =========================================================================
   promtail:
-    image: grafana/promtail:3.6.8
+    image: grafana/promtail:3.6.11
     container_name: promtail
     restart: unless-stopped
     profiles: [monitoring]
@@ -458,7 +462,7 @@ services:
   # Vault - Secret Management
   # =========================================================================
   vault:
-    image: hashicorp/vault:2.0.2
+    image: hashicorp/vault:2.1.1
     container_name: vault
     restart: unless-stopped
     profiles: [security]
@@ -497,7 +501,7 @@ services:
   # Portainer - Container Management
   # =========================================================================
   portainer:
-    image: portainer/portainer-ce:2.39.3
+    image: portainer/portainer-ce:2.45.1
     container_name: portainer
     restart: unless-stopped
     profiles: [infra]
@@ -529,6 +533,332 @@ services:
       homepage.widget.type: portainer
       homepage.widget.url: "https://portainer:9443"
       homepage.widget.env: "2"
+
+  # =========================================================================
+  # OpenUEM - Endpoint management (profile: openuem)
+  # Upstream: https://github.com/open-uem/openuem-docker (merged here, not
+  # cloned). All state lives under ${VOLUMES_BASE}/openuem/: certificates/ holds
+  # the private CA - if it is ever regenerated every enrolled agent is dead, so
+  # back it up. Certificate generation is a ONE-SHOT: profile `openuem-init`,
+  # deliberately NOT part of the normal `up -d` path:
+  #   docker compose ... --profile openuem-init up openuem-certs
+  # Agents reach NATS (mTLS, ${OPENUEM_NATS_PORT}) and OCSP (${OPENUEM_OCSP_PORT})
+  # directly on this host - they cannot go through Caddy. Those two ports are
+  # published on 0.0.0.0, not a specific IP, to avoid the boot-time bind race
+  # that took Caddy down (tailscale0 not yet up when Docker binds).
+  # Cert files are bind-mounted as FILES (paths are hardcoded in the images), so
+  # never `up` the openuem profile before init has run: Docker would create
+  # directories at the missing file paths and break cert generation.
+  # The console is only reachable via Caddy: ${OPENUEM_PROXY_HOST} (password-less
+  # client-cert login on :${OPENUEM_PROXY_AUTH_PORT}) - see caddy labels below.
+  # =========================================================================
+  openuem-db:
+    image: postgres:17.11-alpine
+    container_name: openuem-db
+    restart: unless-stopped
+    profiles: [openuem, openuem-init]
+    command: -p 5434
+    environment:
+      POSTGRES_USER: ${OPENUEM_DB_USER}
+      POSTGRES_PASSWORD: ${OPENUEM_DB_PASSWORD}
+      POSTGRES_DB: ${OPENUEM_DB_NAME}
+    volumes:
+      - ${VOLUMES_BASE}/openuem/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${OPENUEM_DB_USER} -p 5434"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - openuem
+
+  openuem-certs:
+    image: openuem/openuem-cert-manager:0.12.0
+    container_name: openuem-certs
+    entrypoint: ["/bin/configure.sh"]
+    restart: "no"
+    profiles: [openuem-init]
+    environment:
+      ORGNAME: ${OPENUEM_ORGNAME}
+      ORGPROVINCE: ${OPENUEM_ORGPROVINCE}
+      ORGLOCALITY: ${OPENUEM_ORGLOCALITY}
+      ORGADDRESS: ${OPENUEM_ORGADDRESS:-}
+      COUNTRY: ${OPENUEM_ORGCOUNTRY}
+      DOMAIN: ${OPENUEM_DOMAIN}
+      OCSP: ${OPENUEM_OCSP_URL}
+      DATABASE_URL: postgres://${OPENUEM_DB_USER}:${OPENUEM_DB_PASSWORD}@openuem-db:5434/${OPENUEM_DB_NAME}
+      SERVER_NAME: ${OPENUEM_CONSOLE_HOST}
+      REVERSE_PROXY_SERVER: ${OPENUEM_PROXY_HOST}
+      NATS_SERVER: ${OPENUEM_NATS_HOST}
+      NATS_PORT: ${OPENUEM_NATS_PORT}
+    volumes:
+      - ${VOLUMES_BASE}/openuem/certificates:/certificates
+      - ${VOLUMES_BASE}/openuem/nats:/etc/nats
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+    networks:
+      - openuem
+
+  openuem-ocsp:
+    image: openuem/openuem-ocsp-responder:0.12.0
+    container_name: openuem-ocsp
+    restart: unless-stopped
+    profiles: [openuem]
+    command: start
+    environment:
+      OCSP_PORT: ${OPENUEM_OCSP_PORT}
+      DATABASE_URL: postgres://${OPENUEM_DB_USER}:${OPENUEM_DB_PASSWORD}@openuem-db:5434/${OPENUEM_DB_NAME}
+    ports:
+      - "${OPENUEM_OCSP_PORT}:${OPENUEM_OCSP_PORT}"
+    volumes:
+      - ${VOLUMES_BASE}/openuem/certificates/ocsp/ocsp.cer:/usr/bin/certificates/ocsp.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ocsp/ocsp.key:/usr/bin/certificates/ocsp.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.cer:/usr/bin/certificates/ca.cer:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${OPENUEM_OCSP_PORT}/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+    networks:
+      openuem:
+        # Distinct from the NATS name: inside the network that name resolves to the
+        # NATS container itself, which would make NATS's OCSP checks hit itself.
+        aliases:
+          - ${OPENUEM_OCSP_HOST}
+
+  openuem-nats:
+    image: nats:2.15.0-alpine
+    container_name: openuem-nats
+    restart: unless-stopped
+    profiles: [openuem]
+    command: ["-c", "/etc/nats.cfg"]
+    ports:
+      - "${OPENUEM_NATS_PORT}:${OPENUEM_NATS_PORT}"
+    volumes:
+      - ${VOLUMES_BASE}/openuem/nats/nats.cfg:/etc/nats.cfg:ro
+      - ${VOLUMES_BASE}/openuem/certificates/nats/nats.cer:/etc/nats-certificates/nats.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/nats/nats.key:/etc/nats-certificates/nats.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.cer:/etc/nats-certificates/ca.cer:ro
+      - ${VOLUMES_BASE}/openuem/jetstream:/var/lib/jetstream/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+      openuem-ocsp:
+        condition: service_healthy
+    networks:
+      openuem:
+        aliases:
+          - ${OPENUEM_NATS_HOST}
+
+  openuem-notification-worker:
+    image: openuem/openuem-worker:0.12.0
+    container_name: openuem-notification-worker
+    restart: unless-stopped
+    profiles: [openuem]
+    command: notifications start
+    environment:
+      NATS_SERVERS: ${OPENUEM_NATS_HOST}:${OPENUEM_NATS_PORT}
+      DATABASE_URL: postgres://${OPENUEM_DB_USER}:${OPENUEM_DB_PASSWORD}@openuem-db:5434/${OPENUEM_DB_NAME}
+    volumes:
+      - ${VOLUMES_BASE}/openuem/certificates/notification-worker/worker.cer:/tmp/certificates/worker.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/notification-worker/worker.key:/tmp/certificates/worker.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.cer:/tmp/certificates/ca.cer:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+      openuem-nats:
+        condition: service_started
+    networks:
+      - openuem
+
+  openuem-cert-manager-worker:
+    image: openuem/openuem-worker:0.12.0
+    container_name: openuem-cert-manager-worker
+    restart: unless-stopped
+    profiles: [openuem]
+    command: cert-manager start
+    environment:
+      OCSP: ${OPENUEM_OCSP_URL}
+      NATS_SERVERS: ${OPENUEM_NATS_HOST}:${OPENUEM_NATS_PORT}
+      DATABASE_URL: postgres://${OPENUEM_DB_USER}:${OPENUEM_DB_PASSWORD}@openuem-db:5434/${OPENUEM_DB_NAME}
+    volumes:
+      - ${VOLUMES_BASE}/openuem/certificates/cert-manager-worker/worker.cer:/tmp/certificates/worker.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/cert-manager-worker/worker.key:/tmp/certificates/worker.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.cer:/tmp/certificates/ca.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.key:/tmp/certificates/ca.key:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+      openuem-nats:
+        condition: service_started
+    networks:
+      - openuem
+
+  openuem-agents-worker:
+    image: openuem/openuem-worker:0.12.0
+    container_name: openuem-agents-worker
+    restart: unless-stopped
+    profiles: [openuem]
+    command: agents start
+    environment:
+      NATS_SERVERS: ${OPENUEM_NATS_HOST}:${OPENUEM_NATS_PORT}
+      DATABASE_URL: postgres://${OPENUEM_DB_USER}:${OPENUEM_DB_PASSWORD}@openuem-db:5434/${OPENUEM_DB_NAME}
+    volumes:
+      - ${VOLUMES_BASE}/openuem/certificates/agents-worker/worker.cer:/tmp/certificates/worker.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/agents-worker/worker.key:/tmp/certificates/worker.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.cer:/tmp/certificates/ca.cer:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+      openuem-nats:
+        condition: service_started
+    networks:
+      - openuem
+
+  openuem-console:
+    image: openuem/openuem-console:0.12.0
+    container_name: openuem-console
+    restart: unless-stopped
+    profiles: [openuem]
+    command: start
+    environment:
+      NATS_SERVERS: ${OPENUEM_NATS_HOST}:${OPENUEM_NATS_PORT}
+      DATABASE_URL: postgres://${OPENUEM_DB_USER}:${OPENUEM_DB_PASSWORD}@openuem-db:5434/${OPENUEM_DB_NAME}
+      JWT_KEY: ${OPENUEM_JWT_KEY}
+      SERVER_NAME: ${OPENUEM_CONSOLE_HOST}
+      CONSOLE_PORT: "1323"
+      AUTH_PORT: "1324"
+      DOMAIN: ${OPENUEM_DOMAIN}
+      ORGNAME: ${OPENUEM_ORGNAME}
+      ORGPROVINCE: ${OPENUEM_ORGPROVINCE}
+      ORGLOCALITY: ${OPENUEM_ORGLOCALITY}
+      ORGADDRESS: ${OPENUEM_ORGADDRESS:-}
+      COUNTRY: ${OPENUEM_ORGCOUNTRY}
+      # Public face is Caddy: tells the console the URLs/ports users actually hit.
+      REVERSE_PROXY_SERVER: ${OPENUEM_PROXY_HOST}
+      REVERSE_PROXY_AUTH_PORT: ${OPENUEM_PROXY_AUTH_PORT}
+    volumes:
+      - ${VOLUMES_BASE}/openuem/certificates/console/console.cer:/bin/certificates/console.cer:ro
+      - ${VOLUMES_BASE}/openuem/certificates/console/console.key:/bin/certificates/console.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/console/sftp.key:/bin/certificates/sftp.key:ro
+      - ${VOLUMES_BASE}/openuem/certificates/ca/ca.cer:/bin/certificates/ca.cer:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    depends_on:
+      openuem-db:
+        condition: service_healthy
+      openuem-nats:
+        condition: service_started
+    networks:
+      openuem:
+      devstack:
+        # Caddy proxies to this name over HTTPS and verifies it against the
+        # OpenUEM CA; it must match a SAN of the console cert (OPENUEM_CONSOLE_HOST,
+        # fixed at cert generation time).
+        aliases:
+          - ${OPENUEM_CONSOLE_HOST}
+    labels:
+      # Console: server-auth TLS only (Caddy terminates the public cert).
+      caddy: ${OPENUEM_PROXY_HOST}
+      caddy.reverse_proxy: "https://${OPENUEM_CONSOLE_HOST}:1323"
+      caddy.reverse_proxy.header_up: "Host {upstream_hostport}"
+      caddy.reverse_proxy.transport: http
+      caddy.reverse_proxy.transport.tls: ""
+      caddy.reverse_proxy.transport.tls_trust_pool: file
+      caddy.reverse_proxy.transport.tls_trust_pool.pem_file: /openuem-ca/ca.cer
+      caddy.import: tls_certs
+      # Client-certificate login (OpenUEM's default auth): mTLS on a second port,
+      # the verified cert is forwarded to the console in the Client-Cert header.
+      caddy_1: "${OPENUEM_PROXY_HOST}:${OPENUEM_PROXY_AUTH_PORT}"
+      caddy_1.import: tls_certs_clientauth
+      caddy_1.reverse_proxy: "https://${OPENUEM_CONSOLE_HOST}:1324"
+      caddy_1.reverse_proxy.header_up_0: "Host {upstream_hostport}"
+      caddy_1.reverse_proxy.header_up_1: "Client-Cert :{tls_client_certificate_der_base64}:"
+      caddy_1.reverse_proxy.transport: http
+      caddy_1.reverse_proxy.transport.tls: ""
+      caddy_1.reverse_proxy.transport.tls_trust_pool: file
+      caddy_1.reverse_proxy.transport.tls_trust_pool.pem_file: /openuem-ca/ca.cer
+      # Homepage
+      homepage.group: Infrastructure
+      homepage.name: OpenUEM
+      homepage.icon: mdi-laptop
+      homepage.href: "https://${OPENUEM_PROXY_HOST}:${OPENUEM_PROXY_AUTH_PORT}"
+      homepage.description: Endpoint Management
+
+  # =========================================================================
+  # Vikunja - Tasks / project management (profile: tasks)
+  # SQLite on a bind mount (single-user homelab scale). Registration is closed:
+  # create accounts with `docker exec vikunja /app/vikunja/vikunja user create`.
+  # Not under watchtower on purpose - Vikunja runs its own DB migrations on start.
+  # =========================================================================
+  vikunja:
+    image: vikunja/vikunja:2.7.0
+    container_name: vikunja
+    restart: unless-stopped
+    profiles: [tasks]
+    networks:
+      - devstack
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: https://${VIKUNJA_HOST}
+      VIKUNJA_SERVICE_JWTSECRET: ${VIKUNJA_JWT_SECRET}
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: "false"
+      VIKUNJA_SERVICE_TIMEZONE: ${TZ:-America/Chicago}
+      VIKUNJA_DATABASE_TYPE: sqlite
+      VIKUNJA_DATABASE_PATH: /db/vikunja.db
+      VIKUNJA_FILES_BASEPATH: /app/vikunja/files
+    volumes:
+      - ${VOLUMES_BASE}/vikunja/db:/db
+      - ${VOLUMES_BASE}/vikunja/files:/app/vikunja/files
+    healthcheck:
+      test: ["CMD", "/app/vikunja/vikunja", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    labels:
+      caddy: ${VIKUNJA_HOST}
+      caddy.reverse_proxy: "{{upstreams 3456}}"
+      caddy.import: tls_certs
+      homepage.group: Development
+      homepage.name: Vikunja
+      homepage.icon: vikunja
+      homepage.href: "https://${VIKUNJA_HOST}"
+      homepage.description: Tasks & Projects
 
   # =========================================================================
   # Watchtower - Automatic Container Updates
@@ -634,6 +964,44 @@ services:
       homepage.href: "http://${VLLM_NEMOTRON_HREF_HOST:-localhost}:${VLLM_NEMOTRON_PORT:-8001}"
       homepage.description: "vLLM serving ${VLLM_NEMOTRON_MODEL:-}"
 
+  # Replaces vllm-nemotron on spark-d5dd. Both are profile-gated and both bind
+  # :8001, so exactly one may run at a time — that is deliberate: rolling back
+  # is `COMPOSE_PROFILES=nemotron` instead of `qwen38`, with no file edits.
+  vllm-qwen38:
+    # 26.04, matching vllm-coder: spark-d5dd was upgraded to driver 580.159.03,
+    # the version whose CUDA forward-compat 26.03 rejects (see vllm-coder below).
+    # 26.04 also carries vLLM 0.19.0 vs 26.03's 0.17.1; both register
+    # Qwen3_5ForConditionalGeneration, but the model card asks for the latest.
+    image: nvcr.io/nvidia/vllm:26.04-py3
+    container_name: vllm-qwen38
+    restart: unless-stopped
+    profiles: [qwen38]
+    network_mode: host
+    ipc: host
+    shm_size: "10.24g"
+    environment:
+      QWEN38_MODEL: ${VLLM_QWEN38_MODEL}
+      QWEN38_PORT: ${VLLM_QWEN38_PORT:-8001}
+      VLLM_API_KEY: ${VLLM_API_KEY}
+    volumes:
+      - ./scripts/vllm/start-qwen38.sh:/workspace/start.sh:ro
+      - ${HF_CACHE_DIR}:/root/.cache/huggingface
+    command: bash /workspace/start.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      homepage.group: Inference
+      homepage.name: Qwen3.8-27B
+      homepage.icon: qwen
+      homepage.href: "http://${VLLM_QWEN38_HREF_HOST:-localhost}:${VLLM_QWEN38_PORT:-8001}"
+      homepage.description: "vLLM serving ${VLLM_QWEN38_MODEL:-}"
+
   vllm-coder:
     # 26.04, not 26.03: spark-06ad runs driver 580.159.03, which 26.03's CUDA
     # forward-compat layer rejects ("compatibility mode UNAVAILABLE" -> Triton
@@ -691,8 +1059,12 @@ services:
       RAG_FULL_CONTEXT: "false"
       # Background tasks (chat titles, tags, follow-ups) go to the coder on
       # spark-06ad: fast, prefix-cached, and never competes with Nemotron
-      TASK_MODEL: "Qwen/Qwen3-Coder-Next-FP8"
-      TASK_MODEL_EXTERNAL: "Qwen/Qwen3-Coder-Next-FP8"
+      # 2026-08-27: was Qwen/Qwen3-Coder-Next-FP8, which no longer exists on any
+      # endpoint (that profile was retired). OpenWebUI calls TASK_MODEL for title
+      # and tag generation on EVERY new chat, so a stale id surfaces to users as
+      # "Model not found" even though the chat model itself is fine.
+      TASK_MODEL: "Qwen/Qwen3.8-27B-FP8"
+      TASK_MODEL_EXTERNAL: "Qwen/Qwen3.8-27B-FP8"
       OPENAI_API_BASE_URLS: ${OPENWEBUI_API_BASE_URLS}
       OPENAI_API_KEYS: ${OPENWEBUI_API_KEYS}
       ENABLE_RAG_WEB_SEARCH: ${ENABLE_RAG_WEB_SEARCH:-false}
@@ -743,7 +1115,7 @@ services:
     # Pinned (was :latest). Watchtower auto-pulled a build whose stricter engine
     # schema rejected `about.language` keys in settings.yml, crash-looping the
     # container. Bump deliberately after checking settings.yml compatibility.
-    image: searxng/searxng:2026.6.15-cf1410af8
+    image: searxng/searxng:2026.10.7-6671d89be
     container_name: searxng
     restart: unless-stopped
     profiles: [search]
@@ -824,7 +1196,7 @@ services:
   # Uptime Kuma - Self-hosted status / uptime monitor
   # =========================================================================
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: louislam/uptime-kuma:2.5.5
     container_name: uptime-kuma
     restart: unless-stopped
     profiles: [status]

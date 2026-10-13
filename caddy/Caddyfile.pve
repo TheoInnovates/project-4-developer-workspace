@@ -1,0 +1,112 @@
+# PVE-target Caddyfile. Same as caddy/Caddyfile except that (tls_certs) obtains
+# certificates from Let's Encrypt via a Route53 DNS-01 challenge instead of
+# serving a manually exported ACM certificate.
+#
+# Kept separate from caddy/Caddyfile on purpose: the Spark stack is still the
+# migration rollback, and its stock caddy image has no route53 module — a
+# `dns route53` directive there would be a fatal config error.
+#
+# DNS-01 needs no inbound reachability, which is what makes it work for a
+# tailnet-only host. Credentials come from AWS_* in .env.pve (IAM user
+# caddy-dns, scoped to hosted zone Z03045941GJPIGVYFEFJQ).
+{
+	email {env.ACME_EMAIL}
+
+	# Production Let's Encrypt (Caddy's default CA — no acme_ca override).
+	# Verified against the staging CA first; all 15 hostnames issued cleanly
+	# once propagation_delay was added below.
+
+	# caddy-docker-proxy forces the admin API onto localhost:2019 (it needs
+	# exclusive control of it), so `admin :2019` here would be ignored. The
+	# global metrics option enables collection; the :2020 site below exposes
+	# them to Prometheus over the devstack network.
+	metrics
+
+	# HTTP/3 is disabled deliberately. quic-go (the QUIC stack Caddy uses) emits
+	# 1280-byte UDP payloads = 1308-byte IP packets, which exceed tailscale0's
+	# 1280 MTU, so every QUIC handshake blackholes for tailnet clients - while
+	# Caddy still advertised alt-svc h3=":443", making browsers attempt QUIC and
+	# fail non-idempotent requests (logins) with a network error. Caddy exposes no
+	# QUIC packet-size knob and raising the Tailscale MTU is unsupported, so h1+h2
+	# only. Do not re-enable without first fixing the path MTU.
+	servers {
+		protocols h1 h2
+	}
+}
+
+# Prometheus scrape endpoint: http://caddy:2020/metrics
+:2020 {
+	metrics
+}
+
+# Every service imports this snippet via its `caddy.import: tls_certs` label,
+# so switching certificate issuance for the whole stack happens here and
+# nowhere else — no per-service label changes.
+(tls_certs) {
+	tls {
+		dns route53
+
+		# ~15 hostnames solve DNS-01 concurrently against a single hosted zone.
+		# Without a deliberate pause, Let's Encrypt's secondary validation
+		# vantage points query Route53 before it has converged and the challenge
+		# fails with "No TXT record found". Wait before asking for validation,
+		# and allow generous time for the propagation check itself.
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	# Browsers cached `alt-svc: h3=":443"; ma=2592000` (30 days) while HTTP/3 was
+	# still advertised. `clear` invalidates that cached entry on the next plain
+	# HTTPS response so they stop attempting QUIC immediately rather than after a
+	# stalled handshake. Safe to remove once the cache window has passed.
+	header Alt-Svc clear
+}
+
+# Same as (tls_certs) plus mutual TLS against the OpenUEM CA. A separate snippet
+# because a site block may hold only one `tls` directive, so client_auth cannot
+# be layered on top of `import tls_certs`. Only used by OpenUEM's :4443 site.
+(tls_certs_clientauth) {
+	tls {
+		dns route53
+		propagation_delay 30s
+		propagation_timeout 5m
+		client_auth {
+			mode require_and_verify
+			trust_pool file {
+				pem_file /openuem-ca/ca.cer
+			}
+		}
+	}
+	header Alt-Svc clear
+}
+
+# Jellyfin runs as LXC 102 on pve3 (192.168.1.221), not as a Docker container on
+# this host, so caddy-docker-proxy's label discovery cannot see it. Hence a
+# static site block. It gets its certificate through the same DNS-01 flow as
+# everything else via the (tls_certs) snippet above.
+jellyfin.devhub.ninja {
+	import tls_certs
+	reverse_proxy 192.168.1.221:8096
+}
+
+# Harvester HCI cluster UI, on the kube-vip VIP at 192.168.1.224 (node itself is
+# .142). Like Jellyfin this is not a Docker container on this host, so
+# caddy-docker-proxy label discovery cannot see it - hence a static block.
+#
+# Harvester serves HTTPS with a self-signed cert, so the upstream must be https://
+# and certificate verification has to be skipped for that hop. The connection
+# between browser and Caddy still uses the real Let's Encrypt cert.
+harvester.devhub.ninja {
+	import tls_certs
+	reverse_proxy https://192.168.1.224 {
+		# Rancher builds the absolute API URLs it hands the dashboard (including the
+		# login action) from the upstream Host header. Without this the UI is told to
+		# POST to https://192.168.1.224:443/... , which tailnet clients cannot reach
+		# and which fails CORS from the harvester.devhub.ninja origin - surfacing as
+		# "An error occurred logging in: Network Error".
+		header_up Host {host}
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}

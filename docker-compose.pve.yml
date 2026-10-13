@@ -1,0 +1,126 @@
+# Proxmox VM (devhub @ 192.168.1.220) overrides: dev stack, no GPU services.
+# Usage:
+#   ./scripts/deploy.sh pve
+# or:
+#   docker compose -f docker-compose.yml -f docker-compose.pve.yml \
+#     --env-file .env.pve up -d
+#
+# vllm-nemotron and vllm-coder stay on the Sparks — this host has no NVIDIA GPU.
+# They're excluded by omitting the `nemotron`/`coder` profiles, not by overriding
+# anything here.
+
+services:
+  # Bound to both the LAN IP and the tailnet address: LAN for local access,
+  # Tailscale for *.devhub.ninja once Route53 points at ${TAILSCALE_IP}.
+  # !override replaces the base 0.0.0.0 binding rather than merging with it
+  # (otherwise Caddy tries to bind both and collides on the port).
+  caddy:
+    # Custom build: caddy-docker-proxy + caddy-dns/route53, so Caddy solves ACME
+    # DNS-01 itself instead of serving a hand-exported ACM cert.
+    # Built from caddy/build/Dockerfile: docker build --pull -t caddy-route53:2.11.7 caddy/build
+    image: caddy-route53:2.11.7
+    # This image is built locally and exists in no registry, so `docker compose
+    # pull` would fail on it and abort the pull of every other service.
+    pull_policy: never
+    ports: !override
+      - "${LAN_IP}:80:80"
+      - "${LAN_IP}:443:443"
+      - "${TAILSCALE_IP}:80:80"
+      - "${TAILSCALE_IP}:443:443"
+      # OpenUEM client-certificate (mTLS) login port, see the openuem-console labels.
+      - "${LAN_IP}:${OPENUEM_PROXY_AUTH_PORT}:${OPENUEM_PROXY_AUTH_PORT}"
+      - "${TAILSCALE_IP}:${OPENUEM_PROXY_AUTH_PORT}:${OPENUEM_PROXY_AUTH_PORT}"
+    # !override because the base mounts caddy/Caddyfile at the same target;
+    # merged lists would give two mounts on /etc/caddy/Caddyfile.
+    # /certs stays mounted so the ACM cert remains available as a fallback.
+    volumes: !override
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./caddy/Caddyfile.pve:/etc/caddy/Caddyfile:ro
+      - ./caddy/certs:/certs:ro
+      - ${VOLUMES_BASE}/caddy-data:/data
+      # OpenUEM private CA, to verify the console's HTTPS and client certs (mTLS).
+      - ${VOLUMES_BASE}/openuem/certificates/ca:/openuem-ca:ro
+    environment:
+      # Credentials for the DNS-01 challenge (IAM user caddy-dns).
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      ACME_EMAIL: ${ACME_EMAIL}
+
+  gitlab:
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  nexus:
+    # 2026-08-25: TRIED and REVERTED the Iron Bank image
+    #   registry1.dso.mil/ironbank/sonatype/nexus/nexus:3.95.0-07
+    # Image compatibility was fine (same nexus uid/gid 200, same entrypoint, no
+    # license env, no chown needed on /nexus-data). The blocker was the bundled
+    # 3.93 -> 3.95 UPGRADE that comes with it: on 3.95 the ci-deploy account
+    # could no longer authenticate (clean HTTP 401 on /service/rest/v1/*), which
+    # breaks CI uploads. 3.95 also adds AuthRateLimiterServiceImpl, so retrying
+    # a failing login turns 401 into 429 retryAfter=30s and hides the real error.
+    # Recovery did NOT need the ZFS snapshot: 3.93 starts cleanly against the
+    # already-migrated 3.95 database and auth works again.
+    # 2026-08-25 (2nd attempt): the first failure was NOT an auth bug. The IB
+    # image ignores NEXUS_DATA=/nexus-data and hardcodes
+    #   -Dkaraf.data=/opt/sonatype/nexus/../sonatype-work/nexus3
+    # so the old bind mount was invisible and Nexus came up as a brand-new empty
+    # instance -- hence [] repositories and 401 for a ci-deploy that did not
+    # exist there. Data was never touched. Mounting the existing nexus-data at
+    # the karaf path makes 3.95 see the real data, which DOES then run the
+    # one-way 3.93 -> 3.95 schema migration.
+    # Rollback: ZFS snapshot rpool/data/vm-100-disk-0@pre-nexus-395-real-*
+    image: registry1.dso.mil/ironbank/sonatype/nexus/nexus:3.95.0-07
+    volumes:
+      - ${VOLUMES_BASE}/nexus-data:/opt/sonatype/sonatype-work/nexus3
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+    labels:
+      # 2026-09-01: second vhost for the Nexus docker connector. The
+      # docker-hosted repo listens on connector port 8082 inside the container;
+      # Caddy terminates TLS for it so the port is never published on the host.
+      caddy_1: nexus-docker.devhub.ninja
+      caddy_1.import: tls_certs
+      caddy_1.reverse_proxy: "{{upstreams 8082}}"
+
+  # Both vLLM endpoints are remote now. host.docker.internal is mapped to
+  # spark-d5dd so existing scrape configs and API URLs that reference it keep
+  # working unchanged — on the Sparks it meant "this host", here it means
+  # "the host that owns the GPU".
+  prometheus:
+    extra_hosts:
+      - "host.docker.internal:192.168.1.94"
+      - "spark-d5dd:192.168.1.94"
+      - "spark-06ad:192.168.1.198"
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  # Auto-unseal via AWS KMS: Vault returns to service on its own after restarts,
+  # VM reboots, and HA failovers instead of needing 3 unseal keys typed by hand.
+  # !override on volumes because the base mounts vault/config.hcl at the same
+  # target; merged lists would give two mounts on /vault/config/config.hcl.
+  vault:
+    volumes: !override
+      - ${VOLUMES_BASE}/vault-data:/vault/data
+      - ./vault/config.pve.hcl:/vault/config/config.hcl:ro
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+      AWS_ACCESS_KEY_ID: ${VAULT_AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${VAULT_AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: us-east-1
+
+  openwebui:
+    ports:
+      - "${LAN_IP}:8080:8080"
+      - "${TAILSCALE_IP}:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:192.168.1.94"
+      - "spark-d5dd:192.168.1.94"
+      - "spark-06ad:192.168.1.198"
