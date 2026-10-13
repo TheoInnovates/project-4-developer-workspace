@@ -107,6 +107,7 @@ services:
   # !override on volumes because the base mounts vault/config.hcl at the same
   # target; merged lists would give two mounts on /vault/config/config.hcl.
   vault:
+    deploy: {resources: {limits: {memory: 512M}}}
     volumes: !override
       - ${VOLUMES_BASE}/vault-data:/vault/data
       - ./vault/config.pve.hcl:/vault/config/config.hcl:ro
@@ -124,3 +125,24 @@ services:
       - "host.docker.internal:192.168.1.94"
       - "spark-d5dd:192.168.1.94"
       - "spark-06ad:192.168.1.198"
+    # 2G was too tight for indexing large PDFs (OCR + embeddings); the VM has 19G.
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # Limits below were running at 70-80% of the base values; doubled for headroom.
+  grafana:
+    deploy: {resources: {limits: {memory: 512M}}}
+  loki:
+    deploy: {resources: {limits: {memory: 512M}}}
+  uptime-kuma:
+    deploy: {resources: {limits: {memory: 512M}}}
+  portainer:
+    deploy: {resources: {limits: {memory: 256M}}}
+  homepage:
+    deploy: {resources: {limits: {memory: 256M}}}
+  openuem-ocsp:
+    deploy: {resources: {limits: {memory: 128M}}}
+  watchtower:
+    deploy: {resources: {limits: {memory: 128M}}}
